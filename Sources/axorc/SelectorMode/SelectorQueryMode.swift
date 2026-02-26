@@ -10,6 +10,14 @@ enum SelectorQueryCLIError: LocalizedError, Equatable {
     case invalidMaxDepth(Int)
     case invalidLimit(Int)
     case applicationNotFound(String)
+    case missingInteraction
+    case missingResultIndex
+    case invalidResultIndex(Int)
+    case unknownInteraction(String)
+    case interactionValueRequired
+    case interactionValueNotAllowed(String)
+    case interactionTargetOutOfBounds(index: Int, matchedCount: Int)
+    case interactionFailed(action: String, index: Int)
 
     var errorDescription: String? {
         switch self {
@@ -25,8 +33,53 @@ enum SelectorQueryCLIError: LocalizedError, Equatable {
             "--limit must be 0 or greater. Use 0 for no cap. Received: \(value)."
         case let .applicationNotFound(identifier):
             "Could not find a running app for '\(identifier)'. Use a bundle id (e.g. com.apple.TextEdit), running app name, PID, or 'focused'."
+        case .missingInteraction:
+            "Selector interaction requires --interaction."
+        case .missingResultIndex:
+            "Selector interaction requires --result-index."
+        case let .invalidResultIndex(index):
+            "--result-index must be greater than 0. Received: \(index)."
+        case let .unknownInteraction(raw):
+            "Unknown --interaction '\(raw)'. Supported values: click, press, set-value."
+        case .interactionValueRequired:
+            "--interaction-value is required when --interaction is set to set-value."
+        case let .interactionValueNotAllowed(action):
+            "--interaction-value is only valid with --interaction set-value (received: \(action))."
+        case let .interactionTargetOutOfBounds(index, matchedCount):
+            "--result-index \(index) is out of bounds for \(matchedCount) matched elements."
+        case let .interactionFailed(action, index):
+            "Interaction '\(action)' failed for result index \(index)."
         }
     }
+}
+
+enum SelectorInteractionAction: Equatable {
+    case click
+    case press
+    case setValue(String)
+
+    var rawName: String {
+        switch self {
+        case .click:
+            return "click"
+        case .press:
+            return "press"
+        case .setValue:
+            return "set-value"
+        }
+    }
+}
+
+struct SelectorInteractionRequest: Equatable {
+    let resultIndex: Int
+    let action: SelectorInteractionAction
+}
+
+struct SelectorInteractionSummary: Equatable {
+    let resultIndex: Int
+    let action: String
+    let role: String
+    let computedName: String?
 }
 
 struct SelectorQueryRequest: Equatable {
@@ -37,6 +90,7 @@ struct SelectorQueryRequest: Equatable {
     let colorEnabled: Bool
     let showPath: Bool
     let showNameSource: Bool
+    let interaction: SelectorInteractionRequest?
 
     init(
         appIdentifier: String,
@@ -45,7 +99,8 @@ struct SelectorQueryRequest: Equatable {
         limit: Int,
         colorEnabled: Bool,
         showPath: Bool,
-        showNameSource: Bool = false)
+        showNameSource: Bool = false,
+        interaction: SelectorInteractionRequest? = nil)
     {
         self.appIdentifier = appIdentifier
         self.selector = selector
@@ -54,6 +109,7 @@ struct SelectorQueryRequest: Equatable {
         self.colorEnabled = colorEnabled
         self.showPath = showPath
         self.showNameSource = showNameSource
+        self.interaction = interaction
     }
 }
 
@@ -70,16 +126,21 @@ enum SelectorQueryRequestBuilder {
         noColor: Bool,
         showPath: Bool,
         showNameSource: Bool = false,
+        interaction: String? = nil,
+        interactionValue: String? = nil,
+        resultIndex: Int? = nil,
         hasStructuredInput: Bool,
         stdoutSupportsANSI: Bool) throws -> SelectorQueryRequest?
     {
         let trimmedApp = app?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedSelector = selector?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedInteraction = interaction?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasAnyInteractionInput = !(trimmedInteraction?.isEmpty ?? true) || interactionValue != nil || resultIndex != nil
 
         let hasApp = !(trimmedApp?.isEmpty ?? true)
         let hasSelector = !(trimmedSelector?.isEmpty ?? true)
 
-        if !hasApp, !hasSelector {
+        if !hasApp, !hasSelector, !hasAnyInteractionInput {
             return nil
         }
 
@@ -98,6 +159,47 @@ enum SelectorQueryRequestBuilder {
             throw SelectorQueryCLIError.invalidLimit(limit)
         }
 
+        if let resultIndex, resultIndex <= 0 {
+            throw SelectorQueryCLIError.invalidResultIndex(resultIndex)
+        }
+
+        let interactionRequest: SelectorInteractionRequest?
+        if hasAnyInteractionInput {
+            guard let trimmedInteraction, !trimmedInteraction.isEmpty else {
+                throw SelectorQueryCLIError.missingInteraction
+            }
+            guard let resultIndex else {
+                throw SelectorQueryCLIError.missingResultIndex
+            }
+
+            switch trimmedInteraction.lowercased() {
+            case "click":
+                if interactionValue != nil {
+                    throw SelectorQueryCLIError.interactionValueNotAllowed("click")
+                }
+                interactionRequest = SelectorInteractionRequest(resultIndex: resultIndex, action: .click)
+
+            case "press":
+                if interactionValue != nil {
+                    throw SelectorQueryCLIError.interactionValueNotAllowed("press")
+                }
+                interactionRequest = SelectorInteractionRequest(resultIndex: resultIndex, action: .press)
+
+            case "set-value":
+                guard let interactionValue else {
+                    throw SelectorQueryCLIError.interactionValueRequired
+                }
+                interactionRequest = SelectorInteractionRequest(
+                    resultIndex: resultIndex,
+                    action: .setValue(interactionValue))
+
+            default:
+                throw SelectorQueryCLIError.unknownInteraction(trimmedInteraction)
+            }
+        } else {
+            interactionRequest = nil
+        }
+
         let resolvedLimit: Int
         if let limit {
             resolvedLimit = (limit == 0) ? unlimitedLimit : limit
@@ -112,7 +214,8 @@ enum SelectorQueryRequestBuilder {
             limit: resolvedLimit,
             colorEnabled: stdoutSupportsANSI && !noColor,
             showPath: showPath,
-            showNameSource: showNameSource)
+            showNameSource: showNameSource,
+            interaction: interactionRequest)
     }
 }
 
@@ -122,13 +225,45 @@ struct SelectorQueryExecutionReport: Equatable {
     let traversedCount: Int
     let matchedCount: Int
     let shownCount: Int
+    let interaction: SelectorInteractionSummary?
     let results: [SelectorMatchSummary]
+
+    init(
+        request: SelectorQueryRequest,
+        elapsedMilliseconds: Double,
+        traversedCount: Int,
+        matchedCount: Int,
+        shownCount: Int,
+        interaction: SelectorInteractionSummary? = nil,
+        results: [SelectorMatchSummary])
+    {
+        self.request = request
+        self.elapsedMilliseconds = elapsedMilliseconds
+        self.traversedCount = traversedCount
+        self.matchedCount = matchedCount
+        self.shownCount = shownCount
+        self.interaction = interaction
+        self.results = results
+    }
 }
 
 struct SelectorQueryResult: Equatable {
     let traversedCount: Int
     let matchedCount: Int
+    let interaction: SelectorInteractionSummary?
     let shown: [SelectorMatchSummary]
+
+    init(
+        traversedCount: Int,
+        matchedCount: Int,
+        interaction: SelectorInteractionSummary? = nil,
+        shown: [SelectorMatchSummary])
+    {
+        self.traversedCount = traversedCount
+        self.matchedCount = matchedCount
+        self.interaction = interaction
+        self.shown = shown
+    }
 }
 
 struct SelectorMatchSummary: Equatable {
@@ -289,6 +424,7 @@ struct SelectorQueryRunner {
             traversedCount: result.traversedCount,
             matchedCount: result.matchedCount,
             shownCount: result.shown.count,
+            interaction: result.interaction,
             results: result.shown)
     }
 
@@ -334,6 +470,9 @@ private enum LiveSelectorQueryExecutor {
             maxDepth: request.maxDepth,
             memoizationContext: memoizationContext)
         let matchedElements = evaluation.matches
+        let interactionSummary = try self.performInteractionIfRequested(
+            request.interaction,
+            matchedElements: matchedElements)
 
         let shownElements = matchedElements.prefix(request.limit)
         let shownSummaries = shownElements.map { element in
@@ -356,6 +495,7 @@ private enum LiveSelectorQueryExecutor {
         return SelectorQueryResult(
             traversedCount: evaluation.traversedNodeCount,
             matchedCount: matchedElements.count,
+            interaction: interactionSummary,
             shown: shownSummaries)
     }
 
@@ -445,6 +585,43 @@ private enum LiveSelectorQueryExecutor {
         default:
             return nil
         }
+    }
+
+    @MainActor
+    private static func performInteractionIfRequested(
+        _ interaction: SelectorInteractionRequest?,
+        matchedElements: [Element]) throws -> SelectorInteractionSummary?
+    {
+        guard let interaction else { return nil }
+        guard interaction.resultIndex <= matchedElements.count else {
+            throw SelectorQueryCLIError.interactionTargetOutOfBounds(
+                index: interaction.resultIndex,
+                matchedCount: matchedElements.count)
+        }
+
+        let targetElement = matchedElements[interaction.resultIndex - 1]
+
+        let succeeded: Bool
+        switch interaction.action {
+        case .click:
+            succeeded = ((try? targetElement.click()) != nil)
+        case .press:
+            succeeded = targetElement.press()
+        case let .setValue(value):
+            succeeded = targetElement.setValue(value, forAttribute: AXAttributeNames.kAXValueAttribute)
+        }
+
+        guard succeeded else {
+            throw SelectorQueryCLIError.interactionFailed(
+                action: interaction.action.rawName,
+                index: interaction.resultIndex)
+        }
+
+        return SelectorInteractionSummary(
+            resultIndex: interaction.resultIndex,
+            action: interaction.action.rawName,
+            role: targetElement.role() ?? "AXUnknown",
+            computedName: SelectorMatchSummary.stringify(targetElement.computedName()))
     }
 }
 

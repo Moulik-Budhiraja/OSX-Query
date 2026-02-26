@@ -4,6 +4,19 @@ enum SelectorQueryOutputFormatter {
     static func format(report: SelectorQueryExecutionReport) -> String {
         var lines: [String] = []
         lines.append(self.statsLine(for: report))
+        if let interaction = report.interaction {
+            var interactionParts = [
+                "interaction",
+                "index=\(interaction.resultIndex)",
+                "action=\(interaction.action)",
+                "status=success",
+                "role=\(interaction.role)",
+            ]
+            if let computedName = self.detailValue(interaction.computedName) {
+                interactionParts.append("name=\"\(self.sanitize(computedName))\"")
+            }
+            lines.append(interactionParts.joined(separator: " "))
+        }
 
         guard !report.results.isEmpty else {
             lines.append("No matching elements.")

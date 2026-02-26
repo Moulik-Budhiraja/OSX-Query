@@ -264,6 +264,50 @@ struct SelectorQueryOutputFormatterTests {
         #expect(outputWithSource.contains("name_source=\"AXTitle\""))
     }
 
+    @Test("Shows interaction status line when action was executed")
+    func showsInteractionStatusLine() {
+        let request = SelectorQueryRequest(
+            appIdentifier: "com.apple.TextEdit",
+            selector: "AXButton",
+            maxDepth: 10,
+            limit: 10,
+            colorEnabled: false,
+            showPath: false)
+
+        let report = SelectorQueryExecutionReport(
+            request: request,
+            elapsedMilliseconds: 1,
+            traversedCount: 5,
+            matchedCount: 2,
+            shownCount: 2,
+            interaction: SelectorInteractionSummary(
+                resultIndex: 1,
+                action: "click",
+                role: "AXButton",
+                computedName: "Save"),
+            results: [
+                SelectorMatchSummary(
+                    role: "AXButton",
+                    computedName: "Save",
+                    title: nil,
+                    value: nil,
+                    identifier: nil,
+                    descriptionText: nil,
+                    path: nil),
+            ])
+
+        let output = SelectorQueryOutputFormatter.format(report: report)
+        let lines = output.split(separator: "\n").map(String.init)
+
+        #expect(lines.count >= 3)
+        #expect(lines[1].contains("interaction"))
+        #expect(lines[1].contains("index=1"))
+        #expect(lines[1].contains("action=click"))
+        #expect(lines[1].contains("status=success"))
+        #expect(lines[1].contains("role=AXButton"))
+        #expect(lines[1].contains("name=\"Save\""))
+    }
+
     @Test("Omits null-like detail values from output")
     func omitsNullLikeDetailValuesFromOutput() {
         let request = SelectorQueryRequest(

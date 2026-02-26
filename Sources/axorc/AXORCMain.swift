@@ -73,6 +73,15 @@ struct AXORCCommand: ParsableCommand {
     @Flag(name: .customLong("show-name-source"), help: "Include computed name source (e.g. AXTitle) per selector match.")
     var showNameSource: Bool = false
 
+    @Option(name: .customLong("result-index"), help: "1-based matched selector result index to target for interaction.")
+    var selectorResultIndex: Int?
+
+    @Option(name: .long, help: "Interaction for targeted selector result (click, press, set-value).")
+    var interaction: String?
+
+    @Option(name: .customLong("interaction-value"), help: "Value used for --interaction set-value.")
+    var interactionValue: String?
+
     @Option(
         name: .customLong("enable-ax"),
         help: "Enable AXEnhancedUserInterface and AXManualAccessibility for a running bundle id. Temporarily focuses target app and restores original focus.")
@@ -302,7 +311,7 @@ struct AXORCCommand: ParsableCommand {
     private func hasAnySelectorInput() -> Bool {
         let hasApp = !(self.app?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         let hasSelector = !(self.selector?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        return hasApp || hasSelector || self.selectorMaxDepth != nil || self.limit != nil || self.noColor || self.showPath || self.showNameSource
+        return hasApp || hasSelector || self.selectorMaxDepth != nil || self.limit != nil || self.noColor || self.showPath || self.showNameSource || self.selectorResultIndex != nil || self.interaction != nil || self.interactionValue != nil
     }
 
     private mutating func buildAXExposureRequestIfNeeded() throws -> AXExposureRequest? {
@@ -338,6 +347,9 @@ struct AXORCCommand: ParsableCommand {
                 noColor: self.noColor,
                 showPath: self.showPath,
                 showNameSource: self.showNameSource,
+                interaction: self.interaction,
+                interactionValue: self.interactionValue,
+                resultIndex: self.selectorResultIndex,
                 hasStructuredInput: self.hasAnyStructuredInput(),
                 stdoutSupportsANSI: OutputCapabilities.stdoutSupportsANSI)
         } catch let selectorError as SelectorQueryCLIError {
@@ -475,12 +487,27 @@ extension AXORCCommand {
             self.limit = limitValue
         }
 
+        if let resultIndexString = parsedValues.options["selectorResultIndex"]?.last {
+            guard let resultIndexValue = Int(resultIndexString) else {
+                throw ValidationError("Invalid value for --result-index: \(resultIndexString)")
+            }
+            self.selectorResultIndex = resultIndexValue
+        }
+
         if let appValue = parsedValues.options["app"]?.last {
             self.app = appValue
         }
 
         if let selectorValue = parsedValues.options["selector"]?.last {
             self.selector = selectorValue
+        }
+
+        if let interactionValue = parsedValues.options["interaction"]?.last {
+            self.interaction = interactionValue
+        }
+
+        if let selectorInteractionValue = parsedValues.options["interactionValue"]?.last {
+            self.interactionValue = selectorInteractionValue
         }
 
         if let enableAppAxValue = parsedValues.options["enableAppAx"]?.last {

@@ -36,6 +36,7 @@ struct SelectorQueryRunnerTests {
         #expect(capturedRequest?.maxDepth == 5)
         #expect(capturedRequest?.limit == 2)
         #expect(capturedRequest?.showPath == false)
+        #expect(capturedRequest?.interaction == nil)
 
         #expect(report.traversedCount == 9)
         #expect(report.matchedCount == 3)
@@ -70,5 +71,39 @@ struct SelectorQueryRunnerTests {
         } catch {
             Issue.record("Unexpected error: \(error)")
         }
+    }
+
+    @MainActor
+    @Test("Propagates interaction summary from query executor")
+    func propagatesInteractionSummary() throws {
+        let request = SelectorQueryRequest(
+            appIdentifier: "com.apple.TextEdit",
+            selector: "AXButton",
+            maxDepth: 5,
+            limit: 2,
+            colorEnabled: false,
+            showPath: false,
+            interaction: SelectorInteractionRequest(resultIndex: 1, action: .press))
+
+        let runner = SelectorQueryRunner(
+            queryExecutor: { _ in
+                SelectorQueryResult(
+                    traversedCount: 4,
+                    matchedCount: 2,
+                    interaction: SelectorInteractionSummary(
+                        resultIndex: 1,
+                        action: "press",
+                        role: "AXButton",
+                        computedName: "Save"),
+                    shown: [])
+            },
+            nowNanoseconds: { 0 })
+
+        let report = try runner.execute(request)
+        #expect(report.interaction == SelectorInteractionSummary(
+            resultIndex: 1,
+            action: "press",
+            role: "AXButton",
+            computedName: "Save"))
     }
 }

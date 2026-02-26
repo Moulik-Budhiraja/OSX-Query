@@ -116,6 +116,154 @@ struct SelectorQueryRequestBuilderTests {
         #expect(request?.showNameSource == true)
     }
 
+    @Test("Builds click interaction request when provided")
+    func buildsClickInteractionRequest() throws {
+        let request = try SelectorQueryRequestBuilder.build(
+            app: "com.apple.TextEdit",
+            selector: "AXButton",
+            maxDepth: nil,
+            limit: nil,
+            noColor: false,
+            showPath: false,
+            interaction: "click",
+            resultIndex: 1,
+            hasStructuredInput: false,
+            stdoutSupportsANSI: true)
+
+        #expect(request?.interaction?.resultIndex == 1)
+        #expect(request?.interaction?.action == .click)
+    }
+
+    @Test("Rejects interaction-only selector mode without app and selector")
+    func rejectsInteractionOnlyModeWithoutAppSelector() {
+        do {
+            _ = try SelectorQueryRequestBuilder.build(
+                app: nil,
+                selector: nil,
+                maxDepth: nil,
+                limit: nil,
+                noColor: false,
+                showPath: false,
+                interaction: "click",
+                resultIndex: 1,
+                hasStructuredInput: false,
+                stdoutSupportsANSI: true)
+            Issue.record("Expected build failure")
+        } catch let error as SelectorQueryCLIError {
+            #expect(error == .missingApplication)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test("Builds press interaction request when provided")
+    func buildsPressInteractionRequest() throws {
+        let request = try SelectorQueryRequestBuilder.build(
+            app: "com.apple.TextEdit",
+            selector: "AXButton",
+            maxDepth: nil,
+            limit: nil,
+            noColor: false,
+            showPath: false,
+            interaction: "press",
+            resultIndex: 2,
+            hasStructuredInput: false,
+            stdoutSupportsANSI: true)
+
+        #expect(request?.interaction?.resultIndex == 2)
+        #expect(request?.interaction?.action == .press)
+    }
+
+    @Test("Rejects interaction when result index is missing")
+    func rejectsInteractionMissingResultIndex() {
+        do {
+            _ = try SelectorQueryRequestBuilder.build(
+                app: "com.apple.TextEdit",
+                selector: "AXButton",
+                maxDepth: nil,
+                limit: nil,
+                noColor: false,
+                showPath: false,
+                interaction: "click",
+                resultIndex: nil,
+                hasStructuredInput: false,
+                stdoutSupportsANSI: true)
+            Issue.record("Expected build failure")
+        } catch let error as SelectorQueryCLIError {
+            #expect(error == .missingResultIndex)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test("Rejects non-positive interaction result index")
+    func rejectsNonPositiveInteractionResultIndex() {
+        do {
+            _ = try SelectorQueryRequestBuilder.build(
+                app: "com.apple.TextEdit",
+                selector: "AXButton",
+                maxDepth: nil,
+                limit: nil,
+                noColor: false,
+                showPath: false,
+                interaction: "click",
+                resultIndex: 0,
+                hasStructuredInput: false,
+                stdoutSupportsANSI: true)
+            Issue.record("Expected build failure")
+        } catch let error as SelectorQueryCLIError {
+            #expect(error == .invalidResultIndex(0))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test("Rejects set-value interaction when value is missing")
+    func rejectsSetValueMissingInteractionValue() {
+        do {
+            _ = try SelectorQueryRequestBuilder.build(
+                app: "com.apple.TextEdit",
+                selector: "AXButton",
+                maxDepth: nil,
+                limit: nil,
+                noColor: false,
+                showPath: false,
+                interaction: "set-value",
+                interactionValue: nil,
+                resultIndex: 1,
+                hasStructuredInput: false,
+                stdoutSupportsANSI: true)
+            Issue.record("Expected build failure")
+        } catch let error as SelectorQueryCLIError {
+            #expect(error == .interactionValueRequired)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test("Rejects interaction value for click")
+    func rejectsInteractionValueForClick() {
+        do {
+            _ = try SelectorQueryRequestBuilder.build(
+                app: "com.apple.TextEdit",
+                selector: "AXButton",
+                maxDepth: nil,
+                limit: nil,
+                noColor: false,
+                showPath: false,
+                interaction: "click",
+                interactionValue: "ignored",
+                resultIndex: 1,
+                hasStructuredInput: false,
+                stdoutSupportsANSI: true)
+            Issue.record("Expected build failure")
+        } catch let error as SelectorQueryCLIError {
+            #expect(error == .interactionValueNotAllowed("click"))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
     @Test("Rejects missing app")
     func rejectsMissingApp() {
         do {
