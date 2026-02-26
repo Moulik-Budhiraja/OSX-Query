@@ -11,7 +11,8 @@ struct SelectorQueryRunnerTests {
             selector: "AXButton",
             maxDepth: 5,
             limit: 2,
-            colorEnabled: false)
+            colorEnabled: false,
+            showPath: false)
 
         var capturedInput: (app: String, selector: String, depth: Int)?
         var timestamps: [UInt64] = [1_000_000_000, 1_005_000_000]
@@ -20,9 +21,9 @@ struct SelectorQueryRunnerTests {
             queryExecutor: { app, selector, depth in
                 capturedInput = (app, selector, depth)
                 return [
-                    SelectorMatchSummary(role: "AXButton", title: "A", value: nil, identifier: nil, descriptionText: nil, path: nil),
-                    SelectorMatchSummary(role: "AXButton", title: "B", value: nil, identifier: nil, descriptionText: nil, path: nil),
-                    SelectorMatchSummary(role: "AXButton", title: "C", value: nil, identifier: nil, descriptionText: nil, path: nil),
+                    SelectorMatchSummary(role: "AXButton", computedName: nil, title: "A", value: nil, identifier: nil, descriptionText: nil, path: nil),
+                    SelectorMatchSummary(role: "AXButton", computedName: nil, title: "B", value: nil, identifier: nil, descriptionText: nil, path: nil),
+                    SelectorMatchSummary(role: "AXButton", computedName: nil, title: "C", value: nil, identifier: nil, descriptionText: nil, path: nil),
                 ]
             },
             nowNanoseconds: {
@@ -50,7 +51,8 @@ struct SelectorQueryRunnerTests {
             selector: "AXButton",
             maxDepth: 5,
             limit: 10,
-            colorEnabled: false)
+            colorEnabled: false,
+            showPath: false)
 
         let runner = SelectorQueryRunner(
             queryExecutor: { _, _, _ in

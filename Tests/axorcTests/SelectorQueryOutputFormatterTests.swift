@@ -10,7 +10,8 @@ struct SelectorQueryOutputFormatterTests {
             selector: "AXButton",
             maxDepth: 10,
             limit: 10,
-            colorEnabled: false)
+            colorEnabled: false,
+            showPath: false)
 
         let report = SelectorQueryExecutionReport(
             request: request,
@@ -20,6 +21,7 @@ struct SelectorQueryOutputFormatterTests {
             results: [
                 SelectorMatchSummary(
                     role: "AXButton",
+                    computedName: "Save",
                     title: "Save",
                     value: nil,
                     identifier: "save-button",
@@ -27,6 +29,7 @@ struct SelectorQueryOutputFormatterTests {
                     path: "AXApplication -> AXWindow -> AXButton"),
                 SelectorMatchSummary(
                     role: "AXTextField",
+                    computedName: "Query",
                     title: nil,
                     value: "line1\nline2",
                     identifier: nil,
@@ -37,7 +40,7 @@ struct SelectorQueryOutputFormatterTests {
         let output = SelectorQueryOutputFormatter.format(report: report)
         let lines = output.split(separator: "\n").map(String.init)
 
-        #expect(lines.count == 4)
+        #expect(lines.count == 3)
         #expect(lines[0].contains("stats app=com.apple.TextEdit"))
         #expect(lines[0].contains("selector=\"AXButton\""))
         #expect(lines[0].contains("elapsed_ms=12.35"))
@@ -45,13 +48,15 @@ struct SelectorQueryOutputFormatterTests {
         #expect(lines[0].contains("shown=2"))
 
         #expect(lines[1].contains("[1] AXButton"))
-        #expect(lines[1].contains("title=\"Save\""))
+        #expect(lines[1].contains("name=\"Save\""))
+        #expect(!lines[1].contains("title=\"Save\""))
         #expect(lines[1].contains("id=\"save-button\""))
         #expect(lines[1].contains("desc=\"Save current document\""))
 
-        #expect(lines[2].contains("path: AXApplication -> AXWindow -> AXButton"))
-        #expect(lines[3].contains("[2] AXTextField"))
-        #expect(lines[3].contains("value=\"line1 line2\""))
+        #expect(lines[2].contains("[2] AXTextField"))
+        #expect(lines[2].contains("name=\"Query\""))
+        #expect(lines[2].contains("value=\"line1 line2\""))
+        #expect(!output.contains("\n    path: "))
     }
 
     @Test("Emits no-match message")
@@ -61,7 +66,8 @@ struct SelectorQueryOutputFormatterTests {
             selector: "AXUnknownRole",
             maxDepth: 10,
             limit: 10,
-            colorEnabled: false)
+            colorEnabled: false,
+            showPath: false)
 
         let report = SelectorQueryExecutionReport(
             request: request,
@@ -84,7 +90,8 @@ struct SelectorQueryOutputFormatterTests {
             selector: "AXButton, AXTextField",
             maxDepth: 10,
             limit: 10,
-            colorEnabled: true)
+            colorEnabled: true,
+            showPath: false)
 
         let report = SelectorQueryExecutionReport(
             request: request,
@@ -92,9 +99,9 @@ struct SelectorQueryOutputFormatterTests {
             matchedCount: 3,
             shownCount: 3,
             results: [
-                SelectorMatchSummary(role: "AXButton", title: nil, value: nil, identifier: nil, descriptionText: nil, path: nil),
-                SelectorMatchSummary(role: "AXTextField", title: nil, value: nil, identifier: nil, descriptionText: nil, path: nil),
-                SelectorMatchSummary(role: "AXButton", title: nil, value: nil, identifier: nil, descriptionText: nil, path: nil),
+                SelectorMatchSummary(role: "AXButton", computedName: nil, title: nil, value: nil, identifier: nil, descriptionText: nil, path: nil),
+                SelectorMatchSummary(role: "AXTextField", computedName: nil, title: nil, value: nil, identifier: nil, descriptionText: nil, path: nil),
+                SelectorMatchSummary(role: "AXButton", computedName: nil, title: nil, value: nil, identifier: nil, descriptionText: nil, path: nil),
             ])
 
         let output = SelectorQueryOutputFormatter.format(report: report)
@@ -123,7 +130,8 @@ struct SelectorQueryOutputFormatterTests {
             selector: selector,
             maxDepth: 10,
             limit: 10,
-            colorEnabled: false)
+            colorEnabled: false,
+            showPath: false)
 
         let report = SelectorQueryExecutionReport(
             request: request,
@@ -137,6 +145,36 @@ struct SelectorQueryOutputFormatterTests {
 
         #expect(firstLine.contains("selector=\""))
         #expect(firstLine.contains("...\""))
+    }
+
+    @Test("Shows paths only when enabled")
+    func showsPathsOnlyWhenEnabled() {
+        let request = SelectorQueryRequest(
+            appIdentifier: "com.apple.TextEdit",
+            selector: "AXButton",
+            maxDepth: 10,
+            limit: 10,
+            colorEnabled: false,
+            showPath: true)
+
+        let report = SelectorQueryExecutionReport(
+            request: request,
+            elapsedMilliseconds: 2,
+            matchedCount: 1,
+            shownCount: 1,
+            results: [
+                SelectorMatchSummary(
+                    role: "AXButton",
+                    computedName: "Save",
+                    title: "Save",
+                    value: nil,
+                    identifier: nil,
+                    descriptionText: nil,
+                    path: "AXApplication -> AXWindow -> AXButton"),
+            ])
+
+        let output = SelectorQueryOutputFormatter.format(report: report)
+        #expect(output.contains("\n    path: AXApplication -> AXWindow -> AXButton"))
     }
 
     private func leadingColorCode(in line: String) -> String? {

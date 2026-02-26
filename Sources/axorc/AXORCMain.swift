@@ -66,6 +66,9 @@ struct AXORCCommand: ParsableCommand {
     @Flag(name: .customLong("no-color"), help: "Disable ANSI color output in selector mode.")
     var noColor: Bool = false
 
+    @Flag(name: .customLong("show-path"), help: "Include full generated path per selector match.")
+    var showPath: Bool = false
+
     @Option(name: .long, help: "Traversal timeout in seconds (overrides default 30).")
     var timeout: Int?
 
@@ -290,6 +293,7 @@ struct AXORCCommand: ParsableCommand {
                 maxDepth: self.selectorMaxDepth,
                 limit: self.limit,
                 noColor: self.noColor,
+                showPath: self.showPath,
                 hasStructuredInput: self.hasAnyStructuredInput(),
                 stdoutSupportsANSI: OutputCapabilities.stdoutSupportsANSI)
         } catch let selectorError as SelectorQueryCLIError {
@@ -395,6 +399,7 @@ extension AXORCCommand {
         self.scanAll = parsedValues.flags.contains("scanAll")
         self.noStopFirst = parsedValues.flags.contains("noStopFirst")
         self.noColor = parsedValues.flags.contains("noColor")
+        self.showPath = parsedValues.flags.contains("showPath")
 
         if let fileValue = parsedValues.options["file"]?.last {
             self.file = fileValue

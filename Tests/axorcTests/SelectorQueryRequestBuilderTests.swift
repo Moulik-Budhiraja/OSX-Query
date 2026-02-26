@@ -11,6 +11,7 @@ struct SelectorQueryRequestBuilderTests {
             maxDepth: nil,
             limit: nil,
             noColor: false,
+            showPath: false,
             hasStructuredInput: false,
             stdoutSupportsANSI: true)
 
@@ -25,6 +26,7 @@ struct SelectorQueryRequestBuilderTests {
             maxDepth: nil,
             limit: nil,
             noColor: false,
+            showPath: false,
             hasStructuredInput: false,
             stdoutSupportsANSI: true)
 
@@ -34,6 +36,7 @@ struct SelectorQueryRequestBuilderTests {
         #expect(request?.maxDepth == 12)
         #expect(request?.limit == 50)
         #expect(request?.colorEnabled == true)
+        #expect(request?.showPath == false)
     }
 
     @Test("Disables color when stdout is not ANSI-capable")
@@ -44,6 +47,7 @@ struct SelectorQueryRequestBuilderTests {
             maxDepth: nil,
             limit: nil,
             noColor: false,
+            showPath: false,
             hasStructuredInput: false,
             stdoutSupportsANSI: false)
 
@@ -58,10 +62,26 @@ struct SelectorQueryRequestBuilderTests {
             maxDepth: nil,
             limit: nil,
             noColor: true,
+            showPath: false,
             hasStructuredInput: false,
             stdoutSupportsANSI: true)
 
         #expect(request?.colorEnabled == false)
+    }
+
+    @Test("Enables path output when --show-path is set")
+    func enablesPathOutput() throws {
+        let request = try SelectorQueryRequestBuilder.build(
+            app: "com.apple.TextEdit",
+            selector: "AXButton",
+            maxDepth: nil,
+            limit: nil,
+            noColor: true,
+            showPath: true,
+            hasStructuredInput: false,
+            stdoutSupportsANSI: true)
+
+        #expect(request?.showPath == true)
     }
 
     @Test("Rejects missing app")
@@ -73,6 +93,7 @@ struct SelectorQueryRequestBuilderTests {
                 maxDepth: nil,
                 limit: nil,
                 noColor: false,
+                showPath: false,
                 hasStructuredInput: false,
                 stdoutSupportsANSI: true)
             Issue.record("Expected build failure")
@@ -92,6 +113,7 @@ struct SelectorQueryRequestBuilderTests {
                 maxDepth: nil,
                 limit: nil,
                 noColor: false,
+                showPath: false,
                 hasStructuredInput: false,
                 stdoutSupportsANSI: true)
             Issue.record("Expected build failure")
@@ -111,6 +133,7 @@ struct SelectorQueryRequestBuilderTests {
                 maxDepth: nil,
                 limit: nil,
                 noColor: false,
+                showPath: false,
                 hasStructuredInput: true,
                 stdoutSupportsANSI: true)
             Issue.record("Expected build failure")
@@ -130,6 +153,7 @@ struct SelectorQueryRequestBuilderTests {
                 maxDepth: 0,
                 limit: nil,
                 noColor: false,
+                showPath: false,
                 hasStructuredInput: false,
                 stdoutSupportsANSI: true)
             Issue.record("Expected build failure")
@@ -149,6 +173,7 @@ struct SelectorQueryRequestBuilderTests {
                 maxDepth: nil,
                 limit: -1,
                 noColor: false,
+                showPath: false,
                 hasStructuredInput: false,
                 stdoutSupportsANSI: true)
             Issue.record("Expected build failure")
@@ -168,6 +193,7 @@ struct SelectorQueryRequestBuilderTests {
                 maxDepth: nil,
                 limit: nil,
                 noColor: false,
+                showPath: false,
                 hasStructuredInput: false,
                 stdoutSupportsANSI: true)
             Issue.record("Expected build failure")
@@ -184,6 +210,7 @@ struct SelectorQueryRequestBuilderTests {
                 maxDepth: nil,
                 limit: nil,
                 noColor: false,
+                showPath: false,
                 hasStructuredInput: false,
                 stdoutSupportsANSI: true)
             Issue.record("Expected build failure")

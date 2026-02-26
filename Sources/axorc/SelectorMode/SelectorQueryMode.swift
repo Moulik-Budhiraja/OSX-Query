@@ -35,6 +35,7 @@ struct SelectorQueryRequest: Equatable {
     let maxDepth: Int
     let limit: Int
     let colorEnabled: Bool
+    let showPath: Bool
 }
 
 enum SelectorQueryRequestBuilder {
@@ -47,6 +48,7 @@ enum SelectorQueryRequestBuilder {
         maxDepth: Int?,
         limit: Int?,
         noColor: Bool,
+        showPath: Bool,
         hasStructuredInput: Bool,
         stdoutSupportsANSI: Bool) throws -> SelectorQueryRequest?
     {
@@ -80,7 +82,8 @@ enum SelectorQueryRequestBuilder {
             selector: trimmedSelector!,
             maxDepth: maxDepth ?? defaultMaxDepth,
             limit: limit ?? defaultLimit,
-            colorEnabled: stdoutSupportsANSI && !noColor)
+            colorEnabled: stdoutSupportsANSI && !noColor,
+            showPath: showPath)
     }
 }
 
@@ -94,6 +97,7 @@ struct SelectorQueryExecutionReport: Equatable {
 
 struct SelectorMatchSummary: Equatable {
     let role: String
+    let computedName: String?
     let title: String?
     let value: String?
     let identifier: String?
@@ -102,6 +106,7 @@ struct SelectorMatchSummary: Equatable {
 
     init(
         role: String,
+        computedName: String?,
         title: String?,
         value: String?,
         identifier: String?,
@@ -109,6 +114,7 @@ struct SelectorMatchSummary: Equatable {
         path: String?)
     {
         self.role = role
+        self.computedName = computedName
         self.title = title
         self.value = value
         self.identifier = identifier
@@ -119,6 +125,7 @@ struct SelectorMatchSummary: Equatable {
     @MainActor
     init(element: Element) {
         self.role = element.role() ?? "AXUnknown"
+        self.computedName = SelectorMatchSummary.normalize(element.computedName())
         self.title = SelectorMatchSummary.normalize(element.title())
         self.value = SelectorMatchSummary.normalize(SelectorMatchSummary.stringify(element.value()))
         self.identifier = SelectorMatchSummary.normalize(element.identifier())

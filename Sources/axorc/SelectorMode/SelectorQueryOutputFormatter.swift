@@ -16,8 +16,14 @@ enum SelectorQueryOutputFormatter {
             let roleLabel = colorizer.colorizeRole(element.role)
             var detailParts: [String] = []
 
+            if let computedName = element.computedName {
+                detailParts.append("name=\"\(self.sanitize(computedName))\"")
+            }
+
             if let title = element.title {
-                detailParts.append("title=\"\(self.sanitize(title))\"")
+                if title != element.computedName {
+                    detailParts.append("title=\"\(self.sanitize(title))\"")
+                }
             }
 
             if let value = element.value {
@@ -35,7 +41,7 @@ enum SelectorQueryOutputFormatter {
             let detailSuffix = detailParts.isEmpty ? "" : " " + detailParts.joined(separator: " ")
             lines.append("[\(index + 1)] \(roleLabel)\(detailSuffix)")
 
-            if let path = element.path {
+            if report.request.showPath, let path = element.path {
                 lines.append("    path: \(self.sanitize(path, maxLength: 200))")
             }
         }
