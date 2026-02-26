@@ -201,38 +201,70 @@ struct SelectorMatchSummary: Equatable {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
             return nil
         }
+        if self.isNullLikeString(trimmed) {
+            return nil
+        }
         return trimmed
     }
 
     static func stringify(_ value: Any?) -> String? {
         guard let value else { return nil }
+        guard let unwrappedValue = self.unwrapOptional(value) else { return nil }
 
-        if value is NSNull {
+        if unwrappedValue is NSNull {
             return nil
         }
-        if let string = value as? String {
+        if let string = unwrappedValue as? String {
+            if self.isNullLikeString(string) {
+                return nil
+            }
             return string
         }
-        if let attributed = value as? NSAttributedString {
+        if let attributed = unwrappedValue as? NSAttributedString {
             return attributed.string
         }
-        if let number = value as? NSNumber {
+        if let number = unwrappedValue as? NSNumber {
             if CFGetTypeID(number) == CFBooleanGetTypeID() {
                 return number.boolValue ? "true" : "false"
             }
             return number.stringValue
         }
-        if let bool = value as? Bool {
+        if let bool = unwrappedValue as? Bool {
             return bool ? "true" : "false"
         }
-        if let strings = value as? [String] {
+        if let strings = unwrappedValue as? [String] {
             return strings.joined(separator: ",")
         }
-        if let array = value as? [Any] {
-            return array.map { stringify($0) ?? String(describing: $0) }.joined(separator: ",")
+        if let array = unwrappedValue as? [Any] {
+            let parts = array.compactMap { stringify($0) }
+            return parts.isEmpty ? nil : parts.joined(separator: ",")
         }
 
-        return String(describing: value)
+        let described = String(describing: unwrappedValue)
+        if self.isNullLikeString(described) {
+            return nil
+        }
+        return described
+    }
+
+    private static func unwrapOptional(_ value: Any) -> Any? {
+        let mirror = Mirror(reflecting: value)
+        guard mirror.displayStyle == .optional else {
+            return value
+        }
+        guard let wrapped = mirror.children.first?.value else {
+            return nil
+        }
+        return self.unwrapOptional(wrapped)
+    }
+
+    private static func isNullLikeString(_ value: String) -> Bool {
+        let token = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return token == "nil" ||
+            token == "null" ||
+            token == "(null)" ||
+            token == "<null>" ||
+            token == "optional(nil)"
     }
 }
 

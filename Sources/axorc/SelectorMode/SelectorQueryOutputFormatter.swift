@@ -16,32 +16,32 @@ enum SelectorQueryOutputFormatter {
             let roleLabel = colorizer.colorizeRole(element.role)
             var detailParts: [String] = []
 
-            if let computedName = element.computedName {
+            if let computedName = self.detailValue(element.computedName) {
                 detailParts.append("name=\"\(self.sanitize(computedName))\"")
-                if report.request.showNameSource, let computedNameSource = element.computedNameSource {
+                if report.request.showNameSource, let computedNameSource = self.detailValue(element.computedNameSource) {
                     detailParts.append("name_source=\"\(self.sanitize(computedNameSource))\"")
                 }
             }
 
-            if let roleDescription = element.roleDescription {
+            if let roleDescription = self.detailValue(element.roleDescription) {
                 detailParts.append("role_desc=\"\(self.sanitize(roleDescription))\"")
             }
 
-            if let title = element.title {
+            if let title = self.detailValue(element.title) {
                 if title != element.computedName {
                     detailParts.append("title=\"\(self.sanitize(title))\"")
                 }
             }
 
-            if let value = element.value {
+            if let value = self.detailValue(element.value) {
                 detailParts.append("value=\"\(self.sanitize(value))\"")
             }
 
-            if let identifier = element.identifier {
+            if let identifier = self.detailValue(element.identifier) {
                 detailParts.append("id=\"\(self.sanitize(identifier))\"")
             }
 
-            if let descriptionText = element.descriptionText {
+            if let descriptionText = self.detailValue(element.descriptionText) {
                 detailParts.append("desc=\"\(self.sanitize(descriptionText))\"")
             }
 
@@ -86,6 +86,17 @@ enum SelectorQueryOutputFormatter {
 
         let clipped = collapsedWhitespace.prefix(maxLength)
         return "\(clipped)..."
+    }
+
+    private static func detailValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        let lowered = trimmed.lowercased()
+        if lowered == "nil" || lowered == "null" || lowered == "(null)" || lowered == "<null>" || lowered == "optional(nil)" {
+            return nil
+        }
+        return trimmed
     }
 }
 

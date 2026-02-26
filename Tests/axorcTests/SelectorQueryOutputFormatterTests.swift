@@ -8,6 +8,10 @@ struct SelectorQueryOutputFormatterTests {
     func stringifyHandlesNullAndAttributedStrings() {
         #expect(SelectorMatchSummary.stringify(NSNull()) == nil)
         #expect(SelectorMatchSummary.stringify(NSAttributedString(string: "Moulik")) == "Moulik")
+        let nestedOptionalNil: Any = Optional<String>.none as Any
+        #expect(SelectorMatchSummary.stringify(nestedOptionalNil) == nil)
+        #expect(SelectorMatchSummary.stringify("nil") == nil)
+        #expect(SelectorMatchSummary.stringify("(null)") == nil)
     }
 
     @Test("Formats stats and element rows without ANSI")
@@ -263,6 +267,49 @@ struct SelectorQueryOutputFormatterTests {
 
         #expect(!outputWithoutSource.contains("name_source=\"AXTitle\""))
         #expect(outputWithSource.contains("name_source=\"AXTitle\""))
+    }
+
+    @Test("Omits null-like detail values from output")
+    func omitsNullLikeDetailValuesFromOutput() {
+        let request = SelectorQueryRequest(
+            appIdentifier: "com.apple.TextEdit",
+            selector: "AXButton",
+            maxDepth: 10,
+            limit: 10,
+            colorEnabled: false,
+            showPath: false,
+            showNameSource: true)
+
+        let report = SelectorQueryExecutionReport(
+            request: request,
+            elapsedMilliseconds: 1,
+            traversedCount: 1,
+            matchedCount: 1,
+            shownCount: 1,
+            results: [
+                SelectorMatchSummary(
+                    role: "AXButton",
+                    computedName: "nil",
+                    computedNameSource: "AXTitle",
+                    roleDescription: "(null)",
+                    isEnabled: true,
+                    isFocused: false,
+                    childCount: 0,
+                    title: "<null>",
+                    value: "optional(nil)",
+                    identifier: "null",
+                    descriptionText: "nil",
+                    path: nil),
+            ])
+
+        let output = SelectorQueryOutputFormatter.format(report: report)
+        #expect(!output.contains("name=\""))
+        #expect(!output.contains("name_source=\""))
+        #expect(!output.contains("role_desc=\""))
+        #expect(!output.contains("title=\""))
+        #expect(!output.contains("value=\""))
+        #expect(!output.contains("id=\""))
+        #expect(!output.contains("desc=\""))
     }
 
     private func leadingColorCode(in line: String) -> String? {
