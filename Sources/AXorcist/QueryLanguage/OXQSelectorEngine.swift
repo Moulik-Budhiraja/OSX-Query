@@ -364,14 +364,18 @@ private struct OXQEvaluator<Node: Hashable> {
 
     private mutating func matchesRelativeSelector(_ node: Node, relativeSelector: OXQRelativeSelector) -> Bool {
         let relation = relativeSelector.leadingCombinator ?? .descendant
-        let candidateNodes: [Node] = switch relation {
-        case .child:
-            self.indexedTree.childrenByNode[node] ?? []
-        case .descendant:
-            self.descendants(of: node)
-        }
-
-        for candidate in candidateNodes where self.selectorMatchesSubject(selector: relativeSelector.selector, subject: candidate) {
+        let candidateNodes = self.descendants(of: node)
+        for candidate in candidateNodes {
+            guard let leftmostMatchNode = self.selectorLeftmostMatchNode(selector: relativeSelector.selector, subject: candidate) else {
+                continue
+            }
+            guard self.isRelativeMatchAnchored(
+                anchor: node,
+                relation: relation,
+                leftmostMatchNode: leftmostMatchNode)
+            else {
+                continue
+            }
             return true
         }
         return false
@@ -403,15 +407,19 @@ private struct OXQEvaluator<Node: Hashable> {
             return cached
         }
 
+        let didMatch = self.selectorLeftmostMatchNode(selector: selector, subject: subject) != nil
+        self.selectorSubjectMatchCache[key] = didMatch
+        return didMatch
+    }
+
+    private mutating func selectorLeftmostMatchNode(selector: OXQSelector, subject: Node) -> Node? {
         let selectorParts = self.selectorParts(for: selector)
-        guard let rightmostCompound = selectorParts.compounds.last else { return false }
+        guard let rightmostCompound = selectorParts.compounds.last else { return nil }
         guard self.matchesCompound(subject, compound: rightmostCompound) else {
-            self.selectorSubjectMatchCache[key] = false
-            return false
+            return nil
         }
 
         var currentNode = subject
-        var didMatch = true
 
         if selectorParts.compounds.count > 1 {
             for index in stride(from: selectorParts.compounds.count - 2, through: 0, by: -1) {
@@ -424,8 +432,7 @@ private struct OXQEvaluator<Node: Hashable> {
                         let parent = self.indexedTree.parentByNode[currentNode],
                         self.matchesCompound(parent, compound: requiredCompound)
                     else {
-                        didMatch = false
-                        break
+                        return nil
                     }
                     currentNode = parent
 
@@ -442,20 +449,30 @@ private struct OXQEvaluator<Node: Hashable> {
                     }
 
                     guard let matchedAncestor else {
-                        didMatch = false
-                        break
+                        return nil
                     }
                     currentNode = matchedAncestor
-                }
-
-                if !didMatch {
-                    break
                 }
             }
         }
 
-        self.selectorSubjectMatchCache[key] = didMatch
-        return didMatch
+        return currentNode
+    }
+
+    private func isRelativeMatchAnchored(anchor: Node, relation: OXQCombinator, leftmostMatchNode: Node) -> Bool {
+        switch relation {
+        case .child:
+            return self.indexedTree.parentByNode[leftmostMatchNode] == anchor
+        case .descendant:
+            var ancestor = self.indexedTree.parentByNode[leftmostMatchNode]
+            while let ancestorNode = ancestor {
+                if ancestorNode == anchor {
+                    return true
+                }
+                ancestor = self.indexedTree.parentByNode[ancestorNode]
+            }
+            return false
+        }
     }
 
     private func canonicalAttributeName(_ name: String) -> String {

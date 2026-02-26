@@ -274,6 +274,24 @@ struct OXQSelectorEngineTests {
         #expect(childMatches.isEmpty)
     }
 
+    @Test("anchors relative has selector chains to :scope")
+    func anchorsRelativeHasSelectorChainsToScope() throws {
+        let fixture = FakeTreeFixture()
+        let engine = fixture.makeEngine()
+
+        let parentMatches = try engine.findAll(
+            matching: #":has(> [CPName*="Child"])"#,
+            from: fixture.root,
+            maxDepth: 10)
+        #expect(fixture.ids(parentMatches) == ["staticParent"])
+
+        let grandparentMatches = try engine.findAll(
+            matching: #":has(> * > [CPName*="Child"])"#,
+            from: fixture.root,
+            maxDepth: 10)
+        #expect(fixture.ids(grandparentMatches) == ["groupC"])
+    }
+
     @Test("evaluates not pseudo with selector list")
     func evaluatesNotPseudoWithSelectorList() throws {
         let fixture = FakeTreeFixture()
@@ -500,8 +518,8 @@ private struct FakeTreeFixture {
         "window": ["AXTitle": "Main Window"],
         "staticA": ["AXValue": "Ralph", "AXTitle": "Spotify Song"],
         "staticB": ["AXValue": "Other"],
-        "staticParent": ["AXValue": "Parent"],
-        "staticChild": ["AXValue": "Child"],
+        "staticParent": ["AXValue": "Parent", AXMiscConstants.computedNameAttributeKey: "Parent"],
+        "staticChild": ["AXValue": "Child", AXMiscConstants.computedNameAttributeKey: "Child"],
         "textAreaA": ["AXValue": "test draft"],
         "textAreaB": ["AXValue": "notes"],
         "buttonSave": ["AXTitle": "Save", AXMiscConstants.computedNameAttributeKey: "Save"],
