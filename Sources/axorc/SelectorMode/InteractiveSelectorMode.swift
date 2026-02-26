@@ -101,14 +101,19 @@ private final class InteractiveSelectorSession {
 
     private let request: InteractiveSelectorRequest
     private let runner = SelectorQueryRunner()
+    private let colorEnabled: Bool
+    private let roleColorizer: InteractiveRoleColorizer
     private var rawMode: RawTerminalMode
 
     private var mode: Mode = .query
     private var running = true
 
     private var query: String
+    private var queryCursorIndex: Int
     private var searchText = ""
+    private var searchCursorIndex = 0
     private var pendingValueText = ""
+    private var pendingValueCursorIndex = 0
 
     private var lastReport: SelectorQueryExecutionReport?
     private var results: [SelectorMatchSummary] = []
@@ -122,6 +127,9 @@ private final class InteractiveSelectorSession {
     init(request: InteractiveSelectorRequest) throws {
         self.request = request
         self.query = request.initialSelector ?? ""
+        self.queryCursorIndex = self.query.count
+        self.colorEnabled = OutputCapabilities.stdoutSupportsANSI
+        self.roleColorizer = InteractiveRoleColorizer(enabled: OutputCapabilities.stdoutSupportsANSI)
         self.rawMode = try RawTerminalMode(fd: STDIN_FILENO)
     }
 
@@ -229,61 +237,61 @@ private final class InteractiveSelectorSession {
         var lines: [String] = []
         var cursorPosition: (row: Int, col: Int)?
 
-        lines.append("axorc interactive app=\(self.request.appIdentifier) max_depth=\(self.maxDepthLabel())")
+        lines.append(self.headerLine("axorc interactive app=\(self.request.appIdentifier) max_depth=\(self.maxDepthLabel())"))
 
         switch self.mode {
         case .query:
-            lines.append("mode=query | Enter run | q clear | Ctrl+C exit")
+            lines.append(self.modeLine("mode=query | Enter run | q clear | Ctrl+C exit"))
             lines.append("")
             let queryPrefix = "query> "
-            lines.append(queryPrefix + self.query)
+            lines.append(self.promptLine(prefix: queryPrefix, value: self.query))
             cursorPosition = (
                 row: lines.count,
-                col: min(size.cols, queryPrefix.count + self.query.count + 1)
+                col: min(size.cols, queryPrefix.count + self.queryCursorIndex + 1)
             )
             lines.append("")
-            lines.append(self.statusMessage)
+            lines.append(self.statusLine(self.statusMessage))
 
         case .results:
-            lines.append("mode=results | j/k or arrows move | / search | Enter interact | q edit query | Ctrl+C exit")
-            lines.append(self.statsLine())
+            lines.append(self.modeLine("mode=results | j/k or arrows move | / search | Enter interact | q edit query | Ctrl+C exit"))
+            lines.append(self.statsLine(styled: true))
             lines.append("")
             self.appendResultLines(into: &lines, terminalRows: size.rows)
             lines.append("")
-            lines.append(self.statusMessage)
+            lines.append(self.statusLine(self.statusMessage))
 
         case .search:
-            lines.append("mode=search | Enter apply | Esc cancel")
-            lines.append(self.statsLine())
+            lines.append(self.modeLine("mode=search | Enter apply | Esc cancel"))
+            lines.append(self.statsLine(styled: true))
             lines.append("")
             self.appendResultLines(into: &lines, terminalRows: size.rows)
             lines.append("")
             let searchPrefix = "search> "
-            lines.append(searchPrefix + self.searchText)
+            lines.append(self.promptLine(prefix: searchPrefix, value: self.searchText))
             cursorPosition = (
                 row: lines.count,
-                col: min(size.cols, searchPrefix.count + self.searchText.count + 1)
+                col: min(size.cols, searchPrefix.count + self.searchCursorIndex + 1)
             )
 
         case .interactionMenu:
-            lines.append("mode=interaction | c click | p press | f focus | v set-value | s set-value-submit | q cancel")
-            lines.append(self.statsLine())
+            lines.append(self.modeLine("mode=interaction | c click | p press | f focus | v set-value | s set-value-submit | q cancel"))
+            lines.append(self.statsLine(styled: true))
             lines.append("")
             self.appendResultLines(into: &lines, terminalRows: size.rows)
             lines.append("")
-            lines.append(self.statusMessage)
+            lines.append(self.statusLine(self.statusMessage))
 
         case let .interactionValueInput(kind):
-            lines.append("mode=\(kind.label) | Enter submit | Esc cancel")
-            lines.append(self.statsLine())
+            lines.append(self.modeLine("mode=\(kind.label) | Enter submit | Esc cancel"))
+            lines.append(self.statsLine(styled: true))
             lines.append("")
             self.appendResultLines(into: &lines, terminalRows: size.rows)
             lines.append("")
             let valuePrefix = "value> "
-            lines.append(valuePrefix + self.pendingValueText)
+            lines.append(self.promptLine(prefix: valuePrefix, value: self.pendingValueText))
             cursorPosition = (
                 row: lines.count,
-                col: min(size.cols, valuePrefix.count + self.pendingValueText.count + 1)
+                col: min(size.cols, valuePrefix.count + self.pendingValueCursorIndex + 1)
             )
         }
 
@@ -313,7 +321,7 @@ private final class InteractiveSelectorSession {
 
     private func appendResultLines(into lines: inout [String], terminalRows: Int) {
         guard !self.results.isEmpty else {
-            lines.append("No results.")
+            lines.append(self.statusLine("No results."))
             return
         }
 
@@ -325,9 +333,10 @@ private final class InteractiveSelectorSession {
         let upperBound = min(self.results.count, self.scrollOffset + viewportHeight)
         for index in self.scrollOffset..<upperBound {
             let result = self.results[index]
-            let marker = (index == self.selectedIndex) ? ">" : " "
-            let line = "\(marker) [\(index + 1)] \(self.renderedResultLine(result))"
-            lines.append(self.truncate(line, maxLength: 220))
+            let isSelected = (index == self.selectedIndex)
+            let marker = isSelected ? ">" : " "
+            let plainLine = "\(marker) [\(index + 1)] \(self.renderedResultLine(result))"
+            lines.append(self.decorateResultLine(self.truncate(plainLine, maxLength: 220), role: result.role, selected: isSelected))
         }
     }
 
@@ -357,11 +366,12 @@ private final class InteractiveSelectorSession {
         return parts.joined(separator: " ")
     }
 
-    private func statsLine() -> String {
+    private func statsLine(styled: Bool = false) -> String {
         guard let report = self.lastReport else {
             return "stats no-query"
         }
-        return "stats elapsed_ms=\(Self.formatMilliseconds(report.elapsedMilliseconds)) traversed=\(report.traversedCount) matched=\(report.matchedCount) shown=\(report.shownCount)"
+        let line = "stats elapsed_ms=\(Self.formatMilliseconds(report.elapsedMilliseconds)) traversed=\(report.traversedCount) matched=\(report.matchedCount) shown=\(report.shownCount)"
+        return styled ? self.emphasisLine(line) : line
     }
 
     private func maxDepthLabel() -> String {
@@ -399,16 +409,27 @@ private final class InteractiveSelectorSession {
             self.executeQuery()
 
         case .backspace:
-            if !self.query.isEmpty {
-                self.query.removeLast()
-            }
+            self.deleteCharacterBeforeCursor(in: &self.query, cursor: &self.queryCursorIndex)
+
+        case .arrowLeft:
+            self.moveCursorLeft(cursor: &self.queryCursorIndex)
+
+        case .arrowRight:
+            self.moveCursorRight(in: self.query, cursor: &self.queryCursorIndex)
+
+        case .altArrowLeft:
+            self.moveCursorWordLeft(in: self.query, cursor: &self.queryCursorIndex)
+
+        case .altArrowRight:
+            self.moveCursorWordRight(in: self.query, cursor: &self.queryCursorIndex)
 
         case .character("q"):
             self.query = ""
+            self.queryCursorIndex = 0
             self.statusMessage = "Query cleared."
 
         case let .character(character):
-            self.query.append(character)
+            self.insertCharacter(character, into: &self.query, cursor: &self.queryCursorIndex)
 
         default:
             break
@@ -452,6 +473,7 @@ private final class InteractiveSelectorSession {
         case .character("/"):
             self.pendingGG = false
             self.searchText = ""
+            self.searchCursorIndex = 0
             self.mode = .search
 
         case .character("n"):
@@ -473,6 +495,7 @@ private final class InteractiveSelectorSession {
         case .character("q"):
             self.pendingGG = false
             self.mode = .query
+            self.queryCursorIndex = self.query.count
             self.statusMessage = "Edit query and press Enter to run."
 
         default:
@@ -491,12 +514,22 @@ private final class InteractiveSelectorSession {
             self.statusMessage = "Search canceled."
 
         case .backspace:
-            if !self.searchText.isEmpty {
-                self.searchText.removeLast()
-            }
+            self.deleteCharacterBeforeCursor(in: &self.searchText, cursor: &self.searchCursorIndex)
+
+        case .arrowLeft:
+            self.moveCursorLeft(cursor: &self.searchCursorIndex)
+
+        case .arrowRight:
+            self.moveCursorRight(in: self.searchText, cursor: &self.searchCursorIndex)
+
+        case .altArrowLeft:
+            self.moveCursorWordLeft(in: self.searchText, cursor: &self.searchCursorIndex)
+
+        case .altArrowRight:
+            self.moveCursorWordRight(in: self.searchText, cursor: &self.searchCursorIndex)
 
         case let .character(character):
-            self.searchText.append(character)
+            self.insertCharacter(character, into: &self.searchText, cursor: &self.searchCursorIndex)
 
         default:
             break
@@ -516,10 +549,12 @@ private final class InteractiveSelectorSession {
 
         case .character("v"):
             self.pendingValueText = ""
+            self.pendingValueCursorIndex = 0
             self.mode = .interactionValueInput(.setValue)
 
         case .character("s"):
             self.pendingValueText = ""
+            self.pendingValueCursorIndex = 0
             self.mode = .interactionValueInput(.setValueSubmit)
 
         case .character("q"), .escape:
@@ -546,12 +581,22 @@ private final class InteractiveSelectorSession {
             self.statusMessage = "Interaction canceled."
 
         case .backspace:
-            if !self.pendingValueText.isEmpty {
-                self.pendingValueText.removeLast()
-            }
+            self.deleteCharacterBeforeCursor(in: &self.pendingValueText, cursor: &self.pendingValueCursorIndex)
+
+        case .arrowLeft:
+            self.moveCursorLeft(cursor: &self.pendingValueCursorIndex)
+
+        case .arrowRight:
+            self.moveCursorRight(in: self.pendingValueText, cursor: &self.pendingValueCursorIndex)
+
+        case .altArrowLeft:
+            self.moveCursorWordLeft(in: self.pendingValueText, cursor: &self.pendingValueCursorIndex)
+
+        case .altArrowRight:
+            self.moveCursorWordRight(in: self.pendingValueText, cursor: &self.pendingValueCursorIndex)
 
         case let .character(character):
-            self.pendingValueText.append(character)
+            self.insertCharacter(character, into: &self.pendingValueText, cursor: &self.pendingValueCursorIndex)
 
         default:
             break
@@ -637,6 +682,119 @@ private final class InteractiveSelectorSession {
         return String(value.prefix(maxLength)) + "..."
     }
 
+    private func headerLine(_ value: String) -> String {
+        self.colorize(value, InteractiveANSI.bold + InteractiveANSI.brightCyan)
+    }
+
+    private func modeLine(_ value: String) -> String {
+        self.colorize(value, InteractiveANSI.brightBlue)
+    }
+
+    private func emphasisLine(_ value: String) -> String {
+        self.colorize(value, InteractiveANSI.brightMagenta)
+    }
+
+    private func promptLine(prefix: String, value: String) -> String {
+        if !self.colorEnabled {
+            return prefix + value
+        }
+        return self.colorize(prefix, InteractiveANSI.brightYellow) + value
+    }
+
+    private func statusLine(_ value: String) -> String {
+        let lowered = value.lowercased()
+        if lowered.contains("failed") || lowered.contains("error") || lowered.contains("cannot") {
+            return self.colorize(value, InteractiveANSI.brightRed)
+        }
+        if lowered.contains("succeeded") || lowered.contains("complete") || lowered.contains("matched") {
+            return self.colorize(value, InteractiveANSI.brightGreen)
+        }
+        return self.colorize(value, InteractiveANSI.brightWhite)
+    }
+
+    private func selectedMarker(_ value: String) -> String {
+        self.colorize(value, InteractiveANSI.bold + InteractiveANSI.brightGreen)
+    }
+
+    private func decorateResultLine(_ line: String, role: String, selected: Bool) -> String {
+        guard self.colorEnabled else { return line }
+
+        var decorated = line
+        if let roleRange = decorated.range(of: role) {
+            decorated.replaceSubrange(roleRange, with: self.roleColorizer.colorizeRole(role))
+        }
+
+        if selected {
+            if let markerRange = decorated.range(of: ">") {
+                decorated.replaceSubrange(markerRange, with: self.selectedMarker(">"))
+            }
+            decorated = self.colorize(decorated, InteractiveANSI.bold)
+        }
+
+        return decorated
+    }
+
+    private func colorize(_ value: String, _ style: String) -> String {
+        guard self.colorEnabled else { return value }
+        return style + value + InteractiveANSI.reset
+    }
+
+    private func insertCharacter(_ character: Character, into text: inout String, cursor: inout Int) {
+        let boundedCursor = max(0, min(text.count, cursor))
+        let insertionIndex = text.index(text.startIndex, offsetBy: boundedCursor)
+        text.insert(character, at: insertionIndex)
+        cursor = boundedCursor + 1
+    }
+
+    private func deleteCharacterBeforeCursor(in text: inout String, cursor: inout Int) {
+        let boundedCursor = max(0, min(text.count, cursor))
+        guard boundedCursor > 0 else {
+            cursor = 0
+            return
+        }
+
+        let deleteStart = text.index(text.startIndex, offsetBy: boundedCursor - 1)
+        let deleteEnd = text.index(after: deleteStart)
+        text.removeSubrange(deleteStart..<deleteEnd)
+        cursor = boundedCursor - 1
+    }
+
+    private func moveCursorLeft(cursor: inout Int) {
+        cursor = max(0, cursor - 1)
+    }
+
+    private func moveCursorRight(in text: String, cursor: inout Int) {
+        cursor = min(text.count, cursor + 1)
+    }
+
+    private func moveCursorWordLeft(in text: String, cursor: inout Int) {
+        let characters = Array(text)
+        var index = max(0, min(cursor, characters.count))
+
+        while index > 0, characters[index - 1].isWhitespaceLike {
+            index -= 1
+        }
+        while index > 0, !characters[index - 1].isWhitespaceLike {
+            index -= 1
+        }
+
+        cursor = index
+    }
+
+    private func moveCursorWordRight(in text: String, cursor: inout Int) {
+        let characters = Array(text)
+        var index = max(0, min(cursor, characters.count))
+
+        while index < characters.count, characters[index].isWhitespaceLike {
+            index += 1
+        }
+        while index < characters.count, !characters[index].isWhitespaceLike {
+            index += 1
+        }
+
+        cursor = index
+    }
+
     private func enterAlternateScreen() {
         fputs("\u{001B}[?1049h\u{001B}[2J\u{001B}[H\u{001B}[?25l", stdout)
         fflush(stdout)
@@ -693,27 +851,61 @@ private final class InteractiveSelectorSession {
             return .escape
         }
 
+        // Common meta key fallback when option sends ESC+b / ESC+f.
+        if secondByte == 98 || secondByte == 66 {
+            return .altArrowLeft
+        }
+        if secondByte == 102 || secondByte == 70 {
+            return .altArrowRight
+        }
+
         guard secondByte == 91 else {
             return .escape
         }
 
-        guard let thirdByte = self.readByte(timeoutMillis: 15) else {
+        var sequenceBytes: [UInt8] = []
+
+        while let byte = self.readByte(timeoutMillis: 15) {
+            sequenceBytes.append(byte)
+
+            if (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122) || byte == 126 {
+                break
+            }
+        }
+
+        guard !sequenceBytes.isEmpty else {
             return .escape
         }
 
-        switch thirdByte {
-        case 65:
+        guard let sequence = String(bytes: sequenceBytes, encoding: .utf8) else {
+            return .escape
+        }
+
+        switch sequence {
+        case "A":
             return .arrowUp
-        case 66:
+        case "B":
             return .arrowDown
-        case 53:
-            _ = self.readByte(timeoutMillis: 15)
+        case "C":
+            return .arrowRight
+        case "D":
+            return .arrowLeft
+        case "5~":
             return .pageUp
-        case 54:
-            _ = self.readByte(timeoutMillis: 15)
+        case "6~":
             return .pageDown
         default:
-            return .escape
+            if sequence.hasSuffix("D"),
+               sequence.contains(";3") || sequence.contains(";9") || sequence.contains(";7")
+            {
+                return .altArrowLeft
+            }
+            if sequence.hasSuffix("C"),
+               sequence.contains(";3") || sequence.contains(";9") || sequence.contains(";7")
+            {
+                return .altArrowRight
+            }
+            return .unknown
         }
     }
 
@@ -737,6 +929,10 @@ private enum TerminalKey: Equatable {
     case enter
     case backspace
     case escape
+    case arrowLeft
+    case arrowRight
+    case altArrowLeft
+    case altArrowRight
     case arrowUp
     case arrowDown
     case pageUp
@@ -745,6 +941,63 @@ private enum TerminalKey: Equatable {
     case ctrlF
     case ctrlB
     case unknown
+}
+
+private extension Character {
+    var isWhitespaceLike: Bool {
+        self.unicodeScalars.allSatisfy { CharacterSet.whitespacesAndNewlines.contains($0) }
+    }
+}
+
+private struct InteractiveRoleColorizer {
+    private static let colors = [
+        InteractiveANSI.red,
+        InteractiveANSI.green,
+        InteractiveANSI.yellow,
+        InteractiveANSI.blue,
+        InteractiveANSI.magenta,
+        InteractiveANSI.cyan,
+        InteractiveANSI.brightRed,
+        InteractiveANSI.brightGreen,
+        InteractiveANSI.brightYellow,
+        InteractiveANSI.brightBlue,
+        InteractiveANSI.brightMagenta,
+        InteractiveANSI.brightCyan,
+    ]
+
+    let enabled: Bool
+
+    func colorizeRole(_ role: String) -> String {
+        guard self.enabled else { return role }
+
+        let color = Self.colors[self.colorIndex(for: role)]
+        return color + role + InteractiveANSI.reset
+    }
+
+    private func colorIndex(for role: String) -> Int {
+        let stableHash = role.utf8.reduce(UInt64(5381)) { partial, byte in
+            ((partial << 5) &+ partial) &+ UInt64(byte)
+        }
+        return Int(stableHash % UInt64(Self.colors.count))
+    }
+}
+
+private enum InteractiveANSI {
+    static let reset = "\u{001B}[0m"
+    static let bold = "\u{001B}[1m"
+    static let red = "\u{001B}[31m"
+    static let green = "\u{001B}[32m"
+    static let yellow = "\u{001B}[33m"
+    static let blue = "\u{001B}[34m"
+    static let magenta = "\u{001B}[35m"
+    static let cyan = "\u{001B}[36m"
+    static let brightRed = "\u{001B}[91m"
+    static let brightGreen = "\u{001B}[92m"
+    static let brightYellow = "\u{001B}[93m"
+    static let brightBlue = "\u{001B}[94m"
+    static let brightMagenta = "\u{001B}[95m"
+    static let brightCyan = "\u{001B}[96m"
+    static let brightWhite = "\u{001B}[97m"
 }
 
 private struct RawTerminalMode {
