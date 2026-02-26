@@ -95,6 +95,11 @@ struct SelectorQueryExecutionReport: Equatable {
     let results: [SelectorMatchSummary]
 }
 
+struct SelectorQueryResult: Equatable {
+    let matchedCount: Int
+    let shown: [SelectorMatchSummary]
+}
+
 struct SelectorMatchSummary: Equatable {
     let role: String
     let computedName: String?
@@ -123,14 +128,14 @@ struct SelectorMatchSummary: Equatable {
     }
 
     @MainActor
-    init(element: Element) {
+    init(element: Element, includePath: Bool) {
         self.role = element.role() ?? "AXUnknown"
         self.computedName = SelectorMatchSummary.normalize(element.computedName())
         self.title = SelectorMatchSummary.normalize(element.title())
         self.value = SelectorMatchSummary.normalize(SelectorMatchSummary.stringify(element.value()))
         self.identifier = SelectorMatchSummary.normalize(element.identifier())
         self.descriptionText = SelectorMatchSummary.normalize(element.descriptionText())
-        self.path = SelectorMatchSummary.normalize(element.generatePathString())
+        self.path = includePath ? SelectorMatchSummary.normalize(element.generatePathString()) : nil
     }
 
     private static func normalize(_ value: String?) -> String? {
@@ -168,7 +173,7 @@ struct SelectorMatchSummary: Equatable {
 
 @MainActor
 struct SelectorQueryRunner {
-    typealias QueryExecutor = @MainActor (String, String, Int) throws -> [SelectorMatchSummary]
+    typealias QueryExecutor = @MainActor (SelectorQueryRequest) throws -> SelectorQueryResult
     typealias NanosecondClock = @MainActor () -> UInt64
 
     init(
@@ -181,18 +186,17 @@ struct SelectorQueryRunner {
 
     func execute(_ request: SelectorQueryRequest) throws -> SelectorQueryExecutionReport {
         let startedAt = self.nowNanoseconds()
-        let matched = try self.queryExecutor(request.appIdentifier, request.selector, request.maxDepth)
+        let result = try self.queryExecutor(request)
         let endedAt = self.nowNanoseconds()
 
-        let shown = Array(matched.prefix(request.limit))
         let elapsedMilliseconds = Double(endedAt &- startedAt) / 1_000_000
 
         return SelectorQueryExecutionReport(
             request: request,
             elapsedMilliseconds: elapsedMilliseconds,
-            matchedCount: matched.count,
-            shownCount: shown.count,
-            results: shown)
+            matchedCount: result.matchedCount,
+            shownCount: result.shown.count,
+            results: result.shown)
     }
 
     private let queryExecutor: QueryExecutor
@@ -205,13 +209,10 @@ struct SelectorQueryRunner {
 
 @MainActor
 private enum LiveSelectorQueryExecutor {
-    static func execute(
-        appIdentifier: String,
-        selector: String,
-        maxDepth: Int) throws -> [SelectorMatchSummary]
+    static func execute(_ request: SelectorQueryRequest) throws -> SelectorQueryResult
     {
-        guard let root = self.resolveRootElement(appIdentifier: appIdentifier) else {
-            throw SelectorQueryCLIError.applicationNotFound(appIdentifier)
+        guard let root = self.resolveRootElement(appIdentifier: request.appIdentifier) else {
+            throw SelectorQueryCLIError.applicationNotFound(request.appIdentifier)
         }
 
         let childrenProvider: (Element) -> [Element] = { element in
@@ -234,12 +235,18 @@ private enum LiveSelectorQueryExecutor {
             roleProvider: roleProvider,
             attributeValueProvider: attributeValueProvider)
 
-        return try selectorEngine.findAll(
-            matching: selector,
+        let matchedElements = try selectorEngine.findAll(
+            matching: request.selector,
             from: root,
-            maxDepth: maxDepth,
+            maxDepth: request.maxDepth,
             memoizationContext: memoizationContext)
-            .map(SelectorMatchSummary.init)
+
+        let shownElements = matchedElements.prefix(request.limit)
+        let shownSummaries = shownElements.map { element in
+            SelectorMatchSummary(element: element, includePath: request.showPath)
+        }
+
+        return SelectorQueryResult(matchedCount: matchedElements.count, shown: shownSummaries)
     }
 
     private static func resolveRootElement(appIdentifier: String) -> Element? {

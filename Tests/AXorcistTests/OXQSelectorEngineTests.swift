@@ -311,6 +311,28 @@ struct OXQSelectorEngineTests {
         let secondReadCount = probe.totalReads["AXValue"] ?? 0
         #expect(secondReadCount == 8)
     }
+
+    @Test("skips role lookups for selectors that do not reference roles")
+    func skipsRoleLookupsWhenSelectorDoesNotReferenceRoles() throws {
+        let fixture = FakeTreeFixture()
+        let roleProbe = RoleProbe()
+        let engine = fixture.makeEngine(roleProbe: roleProbe)
+
+        let matches = try engine.findAll(matching: "*", from: fixture.root, maxDepth: 10)
+        #expect(fixture.ids(matches).count == fixture.nodeCount)
+        #expect(roleProbe.totalReads == 0)
+    }
+
+    @Test("builds role index when selector references roles")
+    func buildsRoleIndexWhenSelectorReferencesRoles() throws {
+        let fixture = FakeTreeFixture()
+        let roleProbe = RoleProbe()
+        let engine = fixture.makeEngine(roleProbe: roleProbe)
+
+        let matches = try engine.findAll(matching: "AXButton", from: fixture.root, maxDepth: 10)
+        #expect(fixture.ids(matches) == ["buttonSave", "buttonCancel"])
+        #expect(roleProbe.totalReads == fixture.nodeCount)
+    }
 }
 
 private struct FakeNode: Hashable, Sendable {
@@ -322,6 +344,14 @@ private final class AttributeProbe {
 
     func record(_ attributeName: String) {
         self.totalReads[attributeName, default: 0] += 1
+    }
+}
+
+private final class RoleProbe {
+    var totalReads = 0
+
+    func record() {
+        self.totalReads += 1
     }
 }
 
@@ -385,7 +415,9 @@ private struct FakeTreeFixture {
         "staticParent": ["staticChild"],
     ]
 
-    func makeEngine(probe: AttributeProbe? = nil) -> OXQSelectorEngine<FakeNode> {
+    var nodeCount: Int { self.nodes.count }
+
+    func makeEngine(probe: AttributeProbe? = nil, roleProbe: RoleProbe? = nil) -> OXQSelectorEngine<FakeNode> {
         let nodeByID = Dictionary(uniqueKeysWithValues: self.nodes.map { ($0.id, $0) })
 
         return OXQSelectorEngine<FakeNode>(
@@ -394,7 +426,8 @@ private struct FakeTreeFixture {
                 return childIDs.compactMap { nodeByID[$0] }
             },
             role: { node in
-                self.roleByID[node.id]
+                roleProbe?.record()
+                return self.roleByID[node.id]
             },
             attributeValue: { node, attributeName in
                 probe?.record(attributeName)

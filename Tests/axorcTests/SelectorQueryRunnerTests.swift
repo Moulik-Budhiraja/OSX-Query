@@ -14,17 +14,16 @@ struct SelectorQueryRunnerTests {
             colorEnabled: false,
             showPath: false)
 
-        var capturedInput: (app: String, selector: String, depth: Int)?
+        var capturedRequest: SelectorQueryRequest?
         var timestamps: [UInt64] = [1_000_000_000, 1_005_000_000]
 
         let runner = SelectorQueryRunner(
-            queryExecutor: { app, selector, depth in
-                capturedInput = (app, selector, depth)
-                return [
+            queryExecutor: { request in
+                capturedRequest = request
+                return SelectorQueryResult(matchedCount: 3, shown: [
                     SelectorMatchSummary(role: "AXButton", computedName: nil, title: "A", value: nil, identifier: nil, descriptionText: nil, path: nil),
                     SelectorMatchSummary(role: "AXButton", computedName: nil, title: "B", value: nil, identifier: nil, descriptionText: nil, path: nil),
-                    SelectorMatchSummary(role: "AXButton", computedName: nil, title: "C", value: nil, identifier: nil, descriptionText: nil, path: nil),
-                ]
+                ])
             },
             nowNanoseconds: {
                 timestamps.removeFirst()
@@ -32,9 +31,11 @@ struct SelectorQueryRunnerTests {
 
         let report = try runner.execute(request)
 
-        #expect(capturedInput?.app == "com.apple.TextEdit")
-        #expect(capturedInput?.selector == "AXButton")
-        #expect(capturedInput?.depth == 5)
+        #expect(capturedRequest?.appIdentifier == "com.apple.TextEdit")
+        #expect(capturedRequest?.selector == "AXButton")
+        #expect(capturedRequest?.maxDepth == 5)
+        #expect(capturedRequest?.limit == 2)
+        #expect(capturedRequest?.showPath == false)
 
         #expect(report.matchedCount == 3)
         #expect(report.shownCount == 2)
@@ -55,7 +56,7 @@ struct SelectorQueryRunnerTests {
             showPath: false)
 
         let runner = SelectorQueryRunner(
-            queryExecutor: { _, _, _ in
+            queryExecutor: { _ in
                 throw SelectorQueryCLIError.applicationNotFound("missing-app")
             },
             nowNanoseconds: { 0 })

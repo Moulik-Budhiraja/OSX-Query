@@ -53,11 +53,12 @@ public final class OXQSelectorEngine<Node: Hashable> {
     {
         let safeMaxDepth = max(0, maxDepth)
         let memoization = memoizationContext ?? self.makeMemoizationContext()
+        let needsRoleIndex = syntaxTree.requiresRoleLookups
         let indexedTree = OXQIndexedTree(
             root: root,
             maxDepth: safeMaxDepth,
             childrenProvider: { memoization.children(of: $0) },
-            roleProvider: { memoization.role(of: $0) })
+            roleProvider: needsRoleIndex ? { memoization.role(of: $0) } : nil)
         var evaluator = OXQEvaluator(
             syntaxTree: syntaxTree,
             indexedTree: indexedTree,
@@ -101,7 +102,7 @@ private struct OXQIndexedTree<Node: Hashable> {
         root: Node,
         maxDepth: Int,
         childrenProvider: (Node) -> [Node],
-        roleProvider: (Node) -> String?)
+        roleProvider: ((Node) -> String?)?)
     {
         self.root = root
         var nodesInTraversalOrder: [Node] = []
@@ -122,10 +123,12 @@ private struct OXQIndexedTree<Node: Hashable> {
             visited.insert(node)
 
             nodesInTraversalOrder.append(node)
-            let role = roleProvider(node)
-            if let role {
-                roleByNode[node] = role
-                roleIndex[role, default: []].append(node)
+            if let roleProvider {
+                let role = roleProvider(node)
+                if let role {
+                    roleByNode[node] = role
+                    roleIndex[role, default: []].append(node)
+                }
             }
 
             let children = depth < maxDepth ? childrenProvider(node) : []
@@ -433,4 +436,48 @@ private struct OXQCompoundMatchKey<Node: Hashable>: Hashable {
 private struct OXQSelectorSubjectMatchKey<Node: Hashable>: Hashable {
     let node: Node
     let selector: OXQSelector
+}
+
+private extension OXQSyntaxTree {
+    var requiresRoleLookups: Bool {
+        self.selectors.contains { $0.requiresRoleLookups }
+    }
+}
+
+private extension OXQSelector {
+    var requiresRoleLookups: Bool {
+        if self.leading.requiresRoleLookups {
+            return true
+        }
+
+        return self.links.contains { $0.compound.requiresRoleLookups }
+    }
+}
+
+private extension OXQCompound {
+    var requiresRoleLookups: Bool {
+        if case .role = self.typeSelector {
+            return true
+        }
+
+        return self.pseudos.contains { pseudo in
+            switch pseudo {
+            case let .not(selectors):
+                return selectors.contains { $0.requiresRoleLookups }
+            case let .has(argument):
+                return argument.requiresRoleLookups
+            }
+        }
+    }
+}
+
+private extension OXQHasArgument {
+    var requiresRoleLookups: Bool {
+        switch self {
+        case let .selectors(selectors):
+            return selectors.contains { $0.requiresRoleLookups }
+        case let .relativeSelectors(relativeSelectors):
+            return relativeSelectors.contains { $0.selector.requiresRoleLookups }
+        }
+    }
 }
