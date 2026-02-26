@@ -227,6 +227,7 @@ private final class InteractiveSelectorSession {
     private func render() {
         let size = Self.terminalSize()
         var lines: [String] = []
+        var cursorPosition: (row: Int, col: Int)?
 
         lines.append("axorc interactive app=\(self.request.appIdentifier) max_depth=\(self.maxDepthLabel())")
 
@@ -234,7 +235,12 @@ private final class InteractiveSelectorSession {
         case .query:
             lines.append("mode=query | Enter run | q clear | Ctrl+C exit")
             lines.append("")
-            lines.append("query> \(self.query)")
+            let queryPrefix = "query> "
+            lines.append(queryPrefix + self.query)
+            cursorPosition = (
+                row: lines.count,
+                col: min(size.cols, queryPrefix.count + self.query.count + 1)
+            )
             lines.append("")
             lines.append(self.statusMessage)
 
@@ -252,7 +258,12 @@ private final class InteractiveSelectorSession {
             lines.append("")
             self.appendResultLines(into: &lines, terminalRows: size.rows)
             lines.append("")
-            lines.append("search> \(self.searchText)")
+            let searchPrefix = "search> "
+            lines.append(searchPrefix + self.searchText)
+            cursorPosition = (
+                row: lines.count,
+                col: min(size.cols, searchPrefix.count + self.searchText.count + 1)
+            )
 
         case .interactionMenu:
             lines.append("mode=interaction | c click | p press | f focus | v set-value | s set-value-submit | q cancel")
@@ -268,7 +279,12 @@ private final class InteractiveSelectorSession {
             lines.append("")
             self.appendResultLines(into: &lines, terminalRows: size.rows)
             lines.append("")
-            lines.append("value> \(self.pendingValueText)")
+            let valuePrefix = "value> "
+            lines.append(valuePrefix + self.pendingValueText)
+            cursorPosition = (
+                row: lines.count,
+                col: min(size.cols, valuePrefix.count + self.pendingValueText.count + 1)
+            )
         }
 
         if lines.count > size.rows {
@@ -284,7 +300,12 @@ private final class InteractiveSelectorSession {
         }
 
         var output = "\u{001B}[2J\u{001B}[H"
-        output += lines.joined(separator: "\n")
+        output += lines.joined(separator: "\r\n")
+        if shouldShowCursor, let cursorPosition, cursorPosition.row <= lines.count {
+            let safeRow = max(1, min(size.rows, cursorPosition.row))
+            let safeCol = max(1, min(size.cols, cursorPosition.col))
+            output += "\u{001B}[\(safeRow);\(safeCol)H"
+        }
         output += shouldShowCursor ? "\u{001B}[?25h" : "\u{001B}[?25l"
         fputs(output, stdout)
         fflush(stdout)
@@ -745,7 +766,6 @@ private struct RawTerminalMode {
         var raw = self.original
         raw.c_lflag &= ~tcflag_t(ICANON | ECHO)
         raw.c_iflag &= ~tcflag_t(IXON | ICRNL)
-        raw.c_oflag &= ~tcflag_t(OPOST)
         raw.c_cc.16 = 1
         raw.c_cc.17 = 0
         guard tcsetattr(self.fd, TCSAFLUSH, &raw) == 0 else {
