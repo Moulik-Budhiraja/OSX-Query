@@ -22,7 +22,7 @@ enum SelectorQueryCLIError: LocalizedError, Equatable {
         case let .invalidMaxDepth(value):
             "--max-depth must be greater than 0. Received: \(value)."
         case let .invalidLimit(value):
-            "--limit must be greater than 0. Received: \(value)."
+            "--limit must be 0 or greater. Use 0 for no cap. Received: \(value)."
         case let .applicationNotFound(identifier):
             "Could not find a running app for '\(identifier)'. Use a bundle id (e.g. com.apple.TextEdit), running app name, PID, or 'focused'."
         }
@@ -41,6 +41,7 @@ struct SelectorQueryRequest: Equatable {
 enum SelectorQueryRequestBuilder {
     private static let defaultMaxDepth = 12
     private static let defaultLimit = 50
+    private static let unlimitedLimit = Int.max
 
     static func build(
         app: String?,
@@ -73,15 +74,22 @@ enum SelectorQueryRequestBuilder {
             throw SelectorQueryCLIError.invalidMaxDepth(maxDepth)
         }
 
-        if let limit, limit <= 0 {
+        if let limit, limit < 0 {
             throw SelectorQueryCLIError.invalidLimit(limit)
+        }
+
+        let resolvedLimit: Int
+        if let limit {
+            resolvedLimit = (limit == 0) ? unlimitedLimit : limit
+        } else {
+            resolvedLimit = defaultLimit
         }
 
         return SelectorQueryRequest(
             appIdentifier: trimmedApp!,
             selector: trimmedSelector!,
             maxDepth: maxDepth ?? defaultMaxDepth,
-            limit: limit ?? defaultLimit,
+            limit: resolvedLimit,
             colorEnabled: stdoutSupportsANSI && !noColor,
             showPath: showPath)
     }

@@ -60,7 +60,7 @@ struct AXORCCommand: ParsableCommand {
     @Option(name: .customLong("max-depth"), help: "Selector mode max traversal depth (default 12).")
     var selectorMaxDepth: Int?
 
-    @Option(name: .long, help: "Selector mode max result rows to print (default 50).")
+    @Option(name: .long, help: "Selector mode max result rows to print (default 50, 0 = no cap).")
     var limit: Int?
 
     @Flag(name: .customLong("no-color"), help: "Disable ANSI color output in selector mode.")

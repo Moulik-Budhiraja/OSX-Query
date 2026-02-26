@@ -184,6 +184,22 @@ struct SelectorQueryRequestBuilderTests {
         }
     }
 
+    @Test("Supports unlimited limit when set to zero")
+    func supportsUnlimitedLimitWhenZero() throws {
+        let request = try SelectorQueryRequestBuilder.build(
+            app: "com.apple.TextEdit",
+            selector: "AXButton",
+            maxDepth: nil,
+            limit: 0,
+            noColor: false,
+            showPath: false,
+            hasStructuredInput: false,
+            stdoutSupportsANSI: true)
+
+        #expect(request != nil)
+        #expect(request?.limit == Int.max)
+    }
+
     @Test("Rejects empty app and selector strings")
     func rejectsEmptyFlags() {
         do {
