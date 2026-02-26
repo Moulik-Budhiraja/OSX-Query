@@ -114,6 +114,10 @@ struct SelectorMatchSummary: Equatable {
     let role: String
     let computedName: String?
     let computedNameSource: String?
+    let roleDescription: String?
+    let isEnabled: Bool?
+    let isFocused: Bool?
+    let childCount: Int?
     let title: String?
     let value: String?
     let identifier: String?
@@ -124,6 +128,10 @@ struct SelectorMatchSummary: Equatable {
         role: String,
         computedName: String?,
         computedNameSource: String? = nil,
+        roleDescription: String? = nil,
+        isEnabled: Bool? = nil,
+        isFocused: Bool? = nil,
+        childCount: Int? = nil,
         title: String?,
         value: String?,
         identifier: String?,
@@ -133,6 +141,10 @@ struct SelectorMatchSummary: Equatable {
         self.role = role
         self.computedName = computedName
         self.computedNameSource = computedNameSource
+        self.roleDescription = roleDescription
+        self.isEnabled = isEnabled
+        self.isFocused = isFocused
+        self.childCount = childCount
         self.title = title
         self.value = value
         self.identifier = identifier
@@ -141,11 +153,22 @@ struct SelectorMatchSummary: Equatable {
     }
 
     @MainActor
-    init(element: Element, includePath: Bool) {
+    init(
+        element: Element,
+        includePath: Bool,
+        roleDescription: String?,
+        isEnabled: Bool?,
+        isFocused: Bool?,
+        childCount: Int?)
+    {
         let computedNameDetails = element.computedNameDetails()
         self.role = element.role() ?? "AXUnknown"
         self.computedName = SelectorMatchSummary.normalize(computedNameDetails?.value)
         self.computedNameSource = SelectorMatchSummary.normalize(computedNameDetails?.source)
+        self.roleDescription = SelectorMatchSummary.normalize(roleDescription)
+        self.isEnabled = isEnabled
+        self.isFocused = isFocused
+        self.childCount = childCount
         self.title = SelectorMatchSummary.normalize(element.title())
         self.value = SelectorMatchSummary.normalize(SelectorMatchSummary.stringify(element.value()))
         self.identifier = SelectorMatchSummary.normalize(element.identifier())
@@ -260,7 +283,24 @@ private enum LiveSelectorQueryExecutor {
 
         let shownElements = matchedElements.prefix(request.limit)
         let shownSummaries = shownElements.map { element in
-            SelectorMatchSummary(element: element, includePath: request.showPath)
+            let roleDescription = memoizationContext.attributeValue(
+                of: element,
+                attributeName: AXAttributeNames.kAXRoleDescriptionAttribute)
+            let isEnabled = self.parseBool(memoizationContext.attributeValue(
+                of: element,
+                attributeName: AXAttributeNames.kAXEnabledAttribute))
+            let isFocused = self.parseBool(memoizationContext.attributeValue(
+                of: element,
+                attributeName: AXAttributeNames.kAXFocusedAttribute))
+            let childCount = memoizationContext.children(of: element).count
+
+            return SelectorMatchSummary(
+                element: element,
+                includePath: request.showPath,
+                roleDescription: roleDescription,
+                isEnabled: isEnabled,
+                isFocused: isFocused,
+                childCount: childCount)
         }
 
         return SelectorQueryResult(
@@ -325,6 +365,18 @@ private enum LiveSelectorQueryExecutor {
             return nil
         }
         return SelectorMatchSummary.stringify(rawValue)
+    }
+
+    private static func parseBool(_ value: String?) -> Bool? {
+        guard let value else { return nil }
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes":
+            return true
+        case "0", "false", "no":
+            return false
+        default:
+            return nil
+        }
     }
 }
 

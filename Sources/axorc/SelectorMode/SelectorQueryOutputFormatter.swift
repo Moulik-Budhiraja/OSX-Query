@@ -23,6 +23,10 @@ enum SelectorQueryOutputFormatter {
                 }
             }
 
+            if let roleDescription = element.roleDescription {
+                detailParts.append("role_desc=\"\(self.sanitize(roleDescription))\"")
+            }
+
             if let title = element.title {
                 if title != element.computedName {
                     detailParts.append("title=\"\(self.sanitize(title))\"")
@@ -39,6 +43,18 @@ enum SelectorQueryOutputFormatter {
 
             if let descriptionText = element.descriptionText {
                 detailParts.append("desc=\"\(self.sanitize(descriptionText))\"")
+            }
+
+            if element.isFocused == true {
+                detailParts.append("focused")
+            }
+
+            if element.isEnabled == false {
+                detailParts.append("disabled")
+            }
+
+            if let childCount = element.childCount, childCount > 0 {
+                detailParts.append("children=\(childCount)")
             }
 
             let detailSuffix = detailParts.isEmpty ? "" : " " + detailParts.joined(separator: " ")
