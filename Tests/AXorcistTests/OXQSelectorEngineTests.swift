@@ -107,6 +107,69 @@ struct OXQSelectorEngineTests {
         #expect(fixture.ids(deep) == ["staticA", "staticB", "staticParent", "staticChild"])
     }
 
+    @Test("uses unlimited max depth by default")
+    func usesUnlimitedMaxDepthByDefault() throws {
+        let root = FakeNode(id: "deepRoot")
+        let chain = (0...15).map { FakeNode(id: "n\($0)") }
+        let deepLeaf = FakeNode(id: "deepLeaf")
+
+        var childrenMap: [FakeNode: [FakeNode]] = [root: [chain[0]]]
+        for index in 0..<(chain.count - 1) {
+            childrenMap[chain[index]] = [chain[index + 1]]
+        }
+        childrenMap[chain.last!] = [deepLeaf]
+
+        var roles: [FakeNode: String] = [root: "AXApplication", deepLeaf: "AXStaticText"]
+        for node in chain {
+            roles[node] = "AXGroup"
+        }
+
+        let engine = OXQSelectorEngine<FakeNode>(
+            children: { node in childrenMap[node] ?? [] },
+            role: { node in roles[node] },
+            attributeValue: { _, _ in nil })
+
+        let defaultDepthMatches = try engine.findAll(matching: "AXStaticText", from: root)
+        #expect(defaultDepthMatches.map(\.id) == ["deepLeaf"])
+
+        let cappedMatches = try engine.findAll(matching: "AXStaticText", from: root, maxDepth: 10)
+        #expect(cappedMatches.isEmpty)
+    }
+
+    @Test("reprocesses node when discovered at a shallower depth")
+    func reprocessesNodeWhenDiscoveredAtShallowerDepth() throws {
+        let root = FakeNode(id: "rootDepth")
+        let deepOne = FakeNode(id: "deepOne")
+        let deepTwo = FakeNode(id: "deepTwo")
+        let shared = FakeNode(id: "shared")
+        let target = FakeNode(id: "target")
+
+        // DFS sees shared first via root->deepOne->deepTwo->shared (depth 3). At maxDepth 3, shared's
+        // children are not traversed on that first visit. Later root->shared (depth 1) should reprocess.
+        let childrenMap: [FakeNode: [FakeNode]] = [
+            root: [deepOne, shared],
+            deepOne: [deepTwo],
+            deepTwo: [shared],
+            shared: [target],
+        ]
+
+        let roles: [FakeNode: String] = [
+            root: "AXApplication",
+            deepOne: "AXGroup",
+            deepTwo: "AXGroup",
+            shared: "AXGroup",
+            target: "AXStaticText",
+        ]
+
+        let engine = OXQSelectorEngine<FakeNode>(
+            children: { node in childrenMap[node] ?? [] },
+            role: { node in roles[node] },
+            attributeValue: { _, _ in nil })
+
+        let matches = try engine.findAll(matching: "AXStaticText", from: root, maxDepth: 3)
+        #expect(matches.map(\.id) == ["target"])
+    }
+
     @Test("selector evaluation is right-to-left")
     func evaluatesRightToLeft() throws {
         let fixture = FakeTreeFixture()

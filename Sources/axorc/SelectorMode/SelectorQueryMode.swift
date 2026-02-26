@@ -39,7 +39,7 @@ struct SelectorQueryRequest: Equatable {
 }
 
 enum SelectorQueryRequestBuilder {
-    private static let defaultMaxDepth = 12
+    private static let unlimitedMaxDepth = Int.max
     private static let defaultLimit = 50
     private static let unlimitedLimit = Int.max
 
@@ -88,7 +88,7 @@ enum SelectorQueryRequestBuilder {
         return SelectorQueryRequest(
             appIdentifier: trimmedApp!,
             selector: trimmedSelector!,
-            maxDepth: maxDepth ?? defaultMaxDepth,
+            maxDepth: maxDepth ?? unlimitedMaxDepth,
             limit: resolvedLimit,
             colorEnabled: stdoutSupportsANSI && !noColor,
             showPath: showPath)

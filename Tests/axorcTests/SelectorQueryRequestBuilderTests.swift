@@ -33,10 +33,25 @@ struct SelectorQueryRequestBuilderTests {
         #expect(request != nil)
         #expect(request?.appIdentifier == "com.apple.TextEdit")
         #expect(request?.selector == "AXButton")
-        #expect(request?.maxDepth == 12)
+        #expect(request?.maxDepth == Int.max)
         #expect(request?.limit == 50)
         #expect(request?.colorEnabled == true)
         #expect(request?.showPath == false)
+    }
+
+    @Test("Uses explicit max depth when provided")
+    func usesExplicitMaxDepth() throws {
+        let request = try SelectorQueryRequestBuilder.build(
+            app: "com.apple.TextEdit",
+            selector: "AXButton",
+            maxDepth: 7,
+            limit: nil,
+            noColor: false,
+            showPath: false,
+            hasStructuredInput: false,
+            stdoutSupportsANSI: true)
+
+        #expect(request?.maxDepth == 7)
     }
 
     @Test("Disables color when stdout is not ANSI-capable")

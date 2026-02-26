@@ -58,7 +58,7 @@ struct AXORCCommand: ParsableCommand {
     @Option(name: .long, help: "OXQ selector query for selector mode.")
     var selector: String?
 
-    @Option(name: .customLong("max-depth"), help: "Selector mode max traversal depth (default 12).")
+    @Option(name: .customLong("max-depth"), help: "Selector mode max traversal depth (default unlimited).")
     var selectorMaxDepth: Int?
 
     @Option(name: .long, help: "Selector mode max result rows to print (default 50, 0 = no cap).")

@@ -26,7 +26,7 @@ public final class OXQSelectorEngine<Node: Hashable> {
     public func findAll(
         matching query: String,
         from root: Node,
-        maxDepth: Int = AXMiscConstants.defaultMaxDepthSearch,
+        maxDepth: Int = .max,
         memoizationContext: OXQQueryMemoizationContext<Node>? = nil) throws -> [Node]
     {
         try self.findAllWithMetrics(
@@ -39,7 +39,7 @@ public final class OXQSelectorEngine<Node: Hashable> {
     public func findAllWithMetrics(
         matching query: String,
         from root: Node,
-        maxDepth: Int = AXMiscConstants.defaultMaxDepthSearch,
+        maxDepth: Int = .max,
         memoizationContext: OXQQueryMemoizationContext<Node>? = nil) throws -> OXQSelectorEvaluation<Node>
     {
         let syntaxTree = try self.parser.parse(query)
@@ -53,7 +53,7 @@ public final class OXQSelectorEngine<Node: Hashable> {
     public func findFirst(
         matching query: String,
         from root: Node,
-        maxDepth: Int = AXMiscConstants.defaultMaxDepthSearch,
+        maxDepth: Int = .max,
         memoizationContext: OXQQueryMemoizationContext<Node>? = nil) throws -> Node?
     {
         try self.findAll(
@@ -66,7 +66,7 @@ public final class OXQSelectorEngine<Node: Hashable> {
     public func findAll(
         matching syntaxTree: OXQSyntaxTree,
         from root: Node,
-        maxDepth: Int = AXMiscConstants.defaultMaxDepthSearch,
+        maxDepth: Int = .max,
         memoizationContext: OXQQueryMemoizationContext<Node>? = nil) -> [Node]
     {
         self.findAllWithMetrics(
@@ -79,7 +79,7 @@ public final class OXQSelectorEngine<Node: Hashable> {
     public func findAllWithMetrics(
         matching syntaxTree: OXQSyntaxTree,
         from root: Node,
-        maxDepth: Int = AXMiscConstants.defaultMaxDepthSearch,
+        maxDepth: Int = .max,
         memoizationContext: OXQQueryMemoizationContext<Node>? = nil) -> OXQSelectorEvaluation<Node>
     {
         let safeMaxDepth = max(0, maxDepth)
@@ -104,7 +104,7 @@ public final class OXQSelectorEngine<Node: Hashable> {
     public func findFirst(
         matching syntaxTree: OXQSyntaxTree,
         from root: Node,
-        maxDepth: Int = AXMiscConstants.defaultMaxDepthSearch,
+        maxDepth: Int = .max,
         memoizationContext: OXQQueryMemoizationContext<Node>? = nil) -> Node?
     {
         self.findAll(
@@ -144,35 +144,39 @@ private struct OXQIndexedTree<Node: Hashable> {
         var childrenByNode: [Node: [Node]] = [:]
         var roleByNode: [Node: String] = [:]
         var roleIndex: [String: [Node]] = [:]
-        var visited = Set<Node>()
-
-        var stack: [(node: Node, depth: Int)] = [(node: root, depth: 0)]
+        var bestDepthByNode: [Node: Int] = [:]
+        var stack: [(node: Node, depth: Int, parent: Node?)] = [(node: root, depth: 0, parent: nil)]
 
         while let entry = stack.popLast() {
             let node = entry.node
             let depth = entry.depth
-            if visited.contains(node) {
+            if let bestDepth = bestDepthByNode[node], depth >= bestDepth {
                 continue
             }
-            visited.insert(node)
 
-            nodesInTraversalOrder.append(node)
-            if let roleProvider {
-                let role = roleProvider(node)
-                if let role {
-                    roleByNode[node] = role
-                    roleIndex[role, default: []].append(node)
+            let isFirstVisit = bestDepthByNode[node] == nil
+            bestDepthByNode[node] = depth
+
+            if let parent = entry.parent {
+                parentByNode[node] = parent
+            }
+
+            if isFirstVisit {
+                nodesInTraversalOrder.append(node)
+                if let roleProvider {
+                    let role = roleProvider(node)
+                    if let role {
+                        roleByNode[node] = role
+                        roleIndex[role, default: []].append(node)
+                    }
                 }
             }
 
             let children = depth < maxDepth ? childrenProvider(node) : []
             childrenByNode[node] = children
-            for child in children where parentByNode[child] == nil {
-                parentByNode[child] = node
-            }
 
             for child in children.reversed() {
-                stack.append((node: child, depth: depth + 1))
+                stack.append((node: child, depth: depth + 1, parent: node))
             }
         }
 
