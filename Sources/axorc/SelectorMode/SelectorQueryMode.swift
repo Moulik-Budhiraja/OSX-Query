@@ -383,7 +383,7 @@ struct SelectorMatchSummary: Equatable {
         self.isFocused = isFocused
         self.childCount = childCount
         self.title = SelectorMatchSummary.normalize(element.title())
-        self.value = SelectorMatchSummary.normalize(SelectorMatchSummary.stringify(element.value()))
+        self.value = SelectorMatchSummary.normalize(SelectorMatchSummary.preferredValueString(for: element))
         self.identifier = SelectorMatchSummary.normalize(element.identifier())
         self.descriptionText = SelectorMatchSummary.normalize(element.descriptionText())
         self.path = includePath ? SelectorMatchSummary.normalize(element.generatePathString()) : nil
@@ -457,6 +457,23 @@ struct SelectorMatchSummary: Equatable {
             token == "(null)" ||
             token == "<null>" ||
             token == "optional(nil)"
+    }
+
+    @MainActor
+    private static func preferredValueString(for element: Element) -> String? {
+        if let directValue: String = element.attribute(Attribute<String>(AXAttributeNames.kAXValueAttribute)) {
+            return directValue
+        }
+
+        if let normalizedValue = self.stringify(element.value()) {
+            return normalizedValue
+        }
+
+        if let selectedText = element.selectedText() {
+            return selectedText
+        }
+
+        return nil
     }
 }
 

@@ -24,26 +24,44 @@ extension Element {
     @MainActor
     public func computedNameDetails() -> ComputedNameDetails? {
         let elementDescription = briefDescription(option: .raw)
+        let roleName = self.role()
+        let valueCandidate = self.valueCandidateForComputedName()
 
         func nonEmpty(_ value: String?) -> String? {
             guard let value, !value.isEmpty else { return nil }
             return value
         }
 
-        let candidates: [(source: String, provider: () -> String?)] = [
-            ("AXTitle", { nonEmpty(self.title()) }),
-            ("AXValue", {
-                guard let rawValue = self.value() as? String, !rawValue.isEmpty else { return nil }
-                return String(rawValue.prefix(50))
-            }),
-            ("AXIdentifier", { nonEmpty(self.identifier()) }),
-            ("AXDescription", { nonEmpty(self.descriptionText()) }),
-            ("AXHelp", { nonEmpty(self.help()) }),
-            ("AXPlaceholderValue", {
-                let placeholder = self.attribute(Attribute<String>(AXAttributeNames.kAXPlaceholderValueAttribute))
-                return nonEmpty(placeholder)
-            }),
-        ]
+        let candidates: [(source: String, provider: () -> String?)]
+        if self.isTextLikeRole(roleName) {
+            candidates = [
+                (valueCandidate?.source ?? AXAttributeNames.kAXValueAttribute, {
+                    nonEmpty(valueCandidate?.value)
+                }),
+                ("AXTitle", { nonEmpty(self.title()) }),
+                ("AXIdentifier", { nonEmpty(self.identifier()) }),
+                ("AXDescription", { nonEmpty(self.descriptionText()) }),
+                ("AXHelp", { nonEmpty(self.help()) }),
+                ("AXPlaceholderValue", {
+                    let placeholder = self.attribute(Attribute<String>(AXAttributeNames.kAXPlaceholderValueAttribute))
+                    return nonEmpty(placeholder)
+                }),
+            ]
+        } else {
+            candidates = [
+                ("AXTitle", { nonEmpty(self.title()) }),
+                (valueCandidate?.source ?? AXAttributeNames.kAXValueAttribute, {
+                    nonEmpty(valueCandidate?.value)
+                }),
+                ("AXIdentifier", { nonEmpty(self.identifier()) }),
+                ("AXDescription", { nonEmpty(self.descriptionText()) }),
+                ("AXHelp", { nonEmpty(self.help()) }),
+                ("AXPlaceholderValue", {
+                    let placeholder = self.attribute(Attribute<String>(AXAttributeNames.kAXPlaceholderValueAttribute))
+                    return nonEmpty(placeholder)
+                }),
+            ]
+        }
 
         for candidate in candidates {
             if let value = candidate.provider() {
@@ -55,7 +73,7 @@ extension Element {
             }
         }
 
-        if let roleName = nonEmpty(role()) {
+        if let roleName = nonEmpty(roleName) {
             let cleanRole = roleName.replacingOccurrences(of: "AX", with: "")
             let resolved = self.logComputedName(
                 source: "AXRole",
@@ -83,5 +101,78 @@ extension Element {
             "\(elementDescription). Returning nil.",
         ].joined(separator: " ")
         GlobalAXLogger.shared.log(AXLogEntry(level: .debug, message: message))
+    }
+
+    private func isTextLikeRole(_ role: String?) -> Bool {
+        guard let role else { return false }
+        switch role {
+        case AXRoleNames.kAXStaticTextRole,
+            AXRoleNames.kAXTextFieldRole,
+            AXRoleNames.kAXTextAreaRole,
+            AXRoleNames.kAXComboBoxRole:
+            return true
+        default:
+            return false
+        }
+    }
+
+    @MainActor
+    private func valueCandidateForComputedName() -> ComputedNameDetails? {
+        if let directValue = self.nonEmptyValueString(
+            self.attribute(Attribute<String>(AXAttributeNames.kAXValueAttribute)))
+        {
+            let truncated = String(directValue.prefix(200))
+            return ComputedNameDetails(value: truncated, source: AXAttributeNames.kAXValueAttribute)
+        }
+
+        if let normalizedValue = self.nonEmptyValueString(self.stringifyValue(self.value())) {
+            let truncated = String(normalizedValue.prefix(200))
+            return ComputedNameDetails(value: truncated, source: AXAttributeNames.kAXValueAttribute)
+        }
+
+        if let selectedText = self.nonEmptyValueString(self.selectedText()) {
+            let truncated = String(selectedText.prefix(200))
+            return ComputedNameDetails(value: truncated, source: AXAttributeNames.kAXSelectedTextAttribute)
+        }
+
+        return nil
+    }
+
+    private func nonEmptyValueString(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        let lowered = value.lowercased()
+        if lowered == "nil" || lowered == "null" || lowered == "(null)" || lowered == "<null>" || lowered == "optional(nil)" {
+            return nil
+        }
+        return value
+    }
+
+    private func stringifyValue(_ rawValue: Any?) -> String? {
+        guard let rawValue else { return nil }
+        if let string = rawValue as? String {
+            return string
+        }
+        if let attributed = rawValue as? NSAttributedString {
+            return attributed.string
+        }
+        if let number = rawValue as? NSNumber {
+            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                return number.boolValue ? "true" : "false"
+            }
+            return number.stringValue
+        }
+        if let bool = rawValue as? Bool {
+            return bool ? "true" : "false"
+        }
+        if let strings = rawValue as? [String] {
+            return strings.joined(separator: ", ")
+        }
+        if let values = rawValue as? [Any] {
+            let flattened = values.compactMap(self.stringifyValue)
+            return flattened.isEmpty ? nil : flattened.joined(separator: ", ")
+        }
+        return nil
     }
 }
