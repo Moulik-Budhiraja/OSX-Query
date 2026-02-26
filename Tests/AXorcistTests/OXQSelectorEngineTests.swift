@@ -145,6 +145,136 @@ struct OXQSelectorEngineTests {
         #expect(fixture.ids(matches) == ["buttonSave"])
         #expect(probe.totalReads["AXTitle"] == 2)
     }
+
+    @Test("does not evaluate attributes when role prefilter has no candidates")
+    func skipsAttributeReadsWhenRoleHasNoCandidates() throws {
+        let fixture = FakeTreeFixture()
+        let probe = AttributeProbe()
+        let engine = fixture.makeEngine(probe: probe)
+
+        let matches = try engine.findAll(
+            matching: #"AXUnknownRole[AXTitle="Save"]"#,
+            from: fixture.root,
+            maxDepth: 10)
+
+        #expect(matches.isEmpty)
+        #expect((probe.totalReads["AXTitle"] ?? 0) == 0)
+    }
+
+    @Test("propagates parser errors for invalid selectors")
+    func propagatesParserErrors() {
+        let fixture = FakeTreeFixture()
+        let engine = fixture.makeEngine()
+
+        do {
+            _ = try engine.findAll(matching: "AXGroup:has(", from: fixture.root, maxDepth: 10)
+            Issue.record("Expected parse failure")
+        } catch let error as OXQParseError {
+            if case .emptyInput = error {
+                #expect(Bool(true))
+                return
+            }
+            #expect(Bool(true))
+        } catch {
+            Issue.record("Unexpected error type: \(error)")
+        }
+    }
+
+    @Test("returns no match for impossible structural chain")
+    func returnsNoMatchForImpossibleChain() throws {
+        let fixture = FakeTreeFixture()
+        let engine = fixture.makeEngine()
+
+        let matches = try engine.findAll(
+            matching: "AXWindow > AXTextField",
+            from: fixture.root,
+            maxDepth: 10)
+
+        #expect(matches.isEmpty)
+    }
+
+    @Test("distinguishes has child from has descendant")
+    func distinguishesHasChildFromHasDescendant() throws {
+        let fixture = FakeTreeFixture()
+        let engine = fixture.makeEngine()
+
+        let descendantMatches = try engine.findAll(
+            matching: #"AXGroup:has(AXStaticText[AXValue="Child"])"#,
+            from: fixture.root,
+            maxDepth: 10)
+        #expect(fixture.ids(descendantMatches) == ["groupC"])
+
+        let childMatches = try engine.findAll(
+            matching: #"AXGroup:has(> AXStaticText[AXValue="Child"])"#,
+            from: fixture.root,
+            maxDepth: 10)
+        #expect(childMatches.isEmpty)
+    }
+
+    @Test("evaluates not pseudo with selector list")
+    func evaluatesNotPseudoWithSelectorList() throws {
+        let fixture = FakeTreeFixture()
+        let engine = fixture.makeEngine()
+
+        let matches = try engine.findAll(
+            matching: #"AXStaticText:not([AXValue="Ralph"], [AXValue="Other"])"#,
+            from: fixture.root,
+            maxDepth: 10)
+        #expect(fixture.ids(matches) == ["staticParent", "staticChild"])
+    }
+
+    @Test("supports attribute alias mapping")
+    func supportsAttributeAliasMapping() throws {
+        let fixture = FakeTreeFixture()
+        let engine = fixture.makeEngine()
+
+        let matches = try engine.findAll(
+            matching: #"*[role="AXButton"]"#,
+            from: fixture.root,
+            maxDepth: 10)
+        #expect(fixture.ids(matches) == ["buttonSave", "buttonCancel"])
+    }
+
+    @Test("handles negative max depth as zero")
+    func handlesNegativeMaxDepth() throws {
+        let fixture = FakeTreeFixture()
+        let engine = fixture.makeEngine()
+
+        let matches = try engine.findAll(matching: "*", from: fixture.root, maxDepth: -1)
+        #expect(fixture.ids(matches) == ["root"])
+    }
+
+    @Test("handles cycles safely")
+    func handlesCyclesSafely() throws {
+        let root = FakeNode(id: "rootCycle")
+        let a = FakeNode(id: "a")
+        let b = FakeNode(id: "b")
+
+        let childrenMap: [FakeNode: [FakeNode]] = [
+            root: [a],
+            a: [b],
+            b: [a], // cycle
+        ]
+
+        let roles: [FakeNode: String] = [
+            root: "AXApplication",
+            a: "AXGroup",
+            b: "AXStaticText",
+        ]
+
+        let engine = OXQSelectorEngine<FakeNode>(
+            children: { node in childrenMap[node] ?? [] },
+            role: { node in roles[node] },
+            attributeValue: { node, attr in
+                if attr == AXAttributeNames.kAXRoleAttribute {
+                    return roles[node]
+                }
+                return nil
+            })
+
+        let matches = try engine.findAll(matching: "*", from: root, maxDepth: 10)
+        #expect(matches.map(\.id) == ["rootCycle", "a", "b"])
+    }
 }
 
 private struct FakeNode: Hashable, Sendable {
