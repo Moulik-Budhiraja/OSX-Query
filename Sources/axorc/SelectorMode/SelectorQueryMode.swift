@@ -464,6 +464,8 @@ struct SelectorQueryRunner {
 
 @MainActor
 private enum LiveSelectorQueryExecutor {
+    private static let setValueSubmitStepDelaySeconds: TimeInterval = 0.2
+
     static func execute(_ request: SelectorQueryRequest) throws -> SelectorQueryResult
     {
         guard let root = self.resolveRootElement(appIdentifier: request.appIdentifier) else {
@@ -642,11 +644,13 @@ private enum LiveSelectorQueryExecutor {
                 succeeded = false
                 break
             }
+            Thread.sleep(forTimeInterval: self.setValueSubmitStepDelaySeconds)
 
             guard targetElement.setValue(value, forAttribute: AXAttributeNames.kAXValueAttribute) else {
                 succeeded = false
                 break
             }
+            Thread.sleep(forTimeInterval: self.setValueSubmitStepDelaySeconds)
 
             do {
                 try Element.typeKey(.return)
