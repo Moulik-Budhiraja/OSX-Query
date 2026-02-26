@@ -53,7 +53,11 @@ struct AXExposureRunnerTests {
         #expect(report.manualAfter == true)
         #expect(report.restoredOriginalFocus == true)
         #expect(state.activationPids == [target.pid, original.pid])
-        #expect(state.writes == ["AXEnhancedUserInterface=true", "AXManualAccessibility=true"])
+        #expect(state.writes == [
+            "AXEnhancedUserInterface=true",
+            "AXManualAccessibility=true",
+            "AXEnhancedUserInterface=true",
+        ])
     }
 
     @Test("Errors when target app is not running")
@@ -170,6 +174,105 @@ struct AXExposureRunnerTests {
 
         #expect(report.restoredOriginalFocus == true)
         #expect(state.activationPids == [target.pid, original.pid])
+    }
+
+    @Test("Accepts AX focused-app signal when workspace frontmost is unavailable")
+    func acceptsAXFocusedSignalWhenWorkspaceFrontmostMissing() throws {
+        let target = AXExposureApp(pid: 22, bundleIdentifier: "com.example.target", isTerminated: false)
+        let focusedHelper = AXExposureApp(pid: 44, bundleIdentifier: "com.example.target", isTerminated: false)
+        let state = MutableState(frontmost: nil)
+
+        let runner = AXExposureRunner(
+            runningAppLookup: { _ in target },
+            frontmostProvider: { state.frontmost },
+            activatePid: { pid in
+                state.activationPids.append(pid)
+                return true
+            },
+            focusedApplicationProvider: { focusedHelper },
+            now: { state.now },
+            sleep: { seconds in state.now.addTimeInterval(seconds) },
+            boolReader: { _, _ in nil },
+            boolWriter: { _, _, _ in .success })
+
+        let report = try runner.execute(
+            AXExposureRequest(bundleIdentifier: target.bundleIdentifier, focusTimeoutSeconds: 0.2))
+
+        #expect(report.restoredOriginalFocus == true)
+        #expect(state.activationPids == [target.pid])
+    }
+
+    @Test("Accepts AX frontmost attribute signal")
+    func acceptsAXFrontmostAttributeSignal() throws {
+        let original = AXExposureApp(pid: 11, bundleIdentifier: "com.example.original", isTerminated: false)
+        let target = AXExposureApp(pid: 22, bundleIdentifier: "com.example.target", isTerminated: false)
+        let state = MutableState(frontmost: original)
+
+        let runner = AXExposureRunner(
+            runningAppLookup: { _ in target },
+            frontmostProvider: { state.frontmost },
+            activatePid: { pid in
+                state.activationPids.append(pid)
+                if pid == original.pid {
+                    state.frontmost = original
+                }
+                return true
+            },
+            targetAXFrontmostProvider: { pid in
+                pid == target.pid
+            },
+            now: { state.now },
+            sleep: { seconds in state.now.addTimeInterval(seconds) },
+            boolReader: { _, _ in nil },
+            boolWriter: { _, _, _ in .success })
+
+        let report = try runner.execute(
+            AXExposureRequest(bundleIdentifier: target.bundleIdentifier, focusTimeoutSeconds: 0.2))
+
+        #expect(report.restoredOriginalFocus == true)
+        #expect(state.activationPids == [target.pid])
+    }
+
+    @Test("Falls back to another process when first candidate rejects AX attributes")
+    func fallsBackToAnotherProcessWhenFirstCandidateFailsWrite() throws {
+        let original = AXExposureApp(pid: 11, bundleIdentifier: "com.example.original", isTerminated: false)
+        let helper = AXExposureApp(pid: 22, bundleIdentifier: "com.example.target", isTerminated: false, activationPolicy: .accessory)
+        let main = AXExposureApp(pid: 33, bundleIdentifier: "com.example.target", isTerminated: false, activationPolicy: .regular)
+        let state = MutableState(frontmost: original)
+
+        let runner = AXExposureRunner(
+            runningAppLookup: { _ in helper },
+            runningAppsProvider: { _ in [helper, main] },
+            frontmostProvider: { state.frontmost },
+            activatePid: { pid in
+                state.activationPids.append(pid)
+                if pid == helper.pid {
+                    state.frontmost = helper
+                } else if pid == main.pid {
+                    state.frontmost = main
+                } else if pid == original.pid {
+                    state.frontmost = original
+                }
+                return true
+            },
+            now: { state.now },
+            sleep: { seconds in state.now.addTimeInterval(seconds) },
+            boolReader: { _, _ in nil },
+            boolWriter: { element, _, _ in
+                var pid: pid_t = 0
+                AXUIElementGetPid(element, &pid)
+                if pid == helper.pid {
+                    return .illegalArgument
+                }
+                return .success
+            })
+
+        let report = try runner.execute(
+            AXExposureRequest(bundleIdentifier: helper.bundleIdentifier, focusTimeoutSeconds: 0.2))
+
+        #expect(report.targetPid == main.pid)
+        #expect(report.restoredOriginalFocus == true)
+        #expect(state.activationPids == [helper.pid, main.pid, original.pid])
     }
 }
 
