@@ -90,12 +90,14 @@ enum SelectorQueryRequestBuilder {
 struct SelectorQueryExecutionReport: Equatable {
     let request: SelectorQueryRequest
     let elapsedMilliseconds: Double
+    let traversedCount: Int
     let matchedCount: Int
     let shownCount: Int
     let results: [SelectorMatchSummary]
 }
 
 struct SelectorQueryResult: Equatable {
+    let traversedCount: Int
     let matchedCount: Int
     let shown: [SelectorMatchSummary]
 }
@@ -194,6 +196,7 @@ struct SelectorQueryRunner {
         return SelectorQueryExecutionReport(
             request: request,
             elapsedMilliseconds: elapsedMilliseconds,
+            traversedCount: result.traversedCount,
             matchedCount: result.matchedCount,
             shownCount: result.shown.count,
             results: result.shown)
@@ -235,18 +238,22 @@ private enum LiveSelectorQueryExecutor {
             roleProvider: roleProvider,
             attributeValueProvider: attributeValueProvider)
 
-        let matchedElements = try selectorEngine.findAll(
+        let evaluation = try selectorEngine.findAllWithMetrics(
             matching: request.selector,
             from: root,
             maxDepth: request.maxDepth,
             memoizationContext: memoizationContext)
+        let matchedElements = evaluation.matches
 
         let shownElements = matchedElements.prefix(request.limit)
         let shownSummaries = shownElements.map { element in
             SelectorMatchSummary(element: element, includePath: request.showPath)
         }
 
-        return SelectorQueryResult(matchedCount: matchedElements.count, shown: shownSummaries)
+        return SelectorQueryResult(
+            traversedCount: evaluation.traversedNodeCount,
+            matchedCount: matchedElements.count,
+            shown: shownSummaries)
     }
 
     private static func resolveRootElement(appIdentifier: String) -> Element? {

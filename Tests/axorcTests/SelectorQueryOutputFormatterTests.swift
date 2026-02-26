@@ -16,6 +16,7 @@ struct SelectorQueryOutputFormatterTests {
         let report = SelectorQueryExecutionReport(
             request: request,
             elapsedMilliseconds: 12.345,
+            traversedCount: 37,
             matchedCount: 2,
             shownCount: 2,
             results: [
@@ -44,6 +45,7 @@ struct SelectorQueryOutputFormatterTests {
         #expect(lines[0].contains("stats app=com.apple.TextEdit"))
         #expect(lines[0].contains("selector=\"AXButton\""))
         #expect(lines[0].contains("elapsed_ms=12.35"))
+        #expect(lines[0].contains("traversed=37"))
         #expect(lines[0].contains("matched=2"))
         #expect(lines[0].contains("shown=2"))
 
@@ -72,12 +74,14 @@ struct SelectorQueryOutputFormatterTests {
         let report = SelectorQueryExecutionReport(
             request: request,
             elapsedMilliseconds: 1.2,
+            traversedCount: 12,
             matchedCount: 0,
             shownCount: 0,
             results: [])
 
         let output = SelectorQueryOutputFormatter.format(report: report)
 
+        #expect(output.contains("traversed=12"))
         #expect(output.contains("matched=0"))
         #expect(output.contains("shown=0"))
         #expect(output.contains("No matching elements."))
@@ -96,6 +100,7 @@ struct SelectorQueryOutputFormatterTests {
         let report = SelectorQueryExecutionReport(
             request: request,
             elapsedMilliseconds: 2,
+            traversedCount: 20,
             matchedCount: 3,
             shownCount: 3,
             results: [
@@ -136,6 +141,7 @@ struct SelectorQueryOutputFormatterTests {
         let report = SelectorQueryExecutionReport(
             request: request,
             elapsedMilliseconds: 2,
+            traversedCount: 44,
             matchedCount: 0,
             shownCount: 0,
             results: [])
@@ -160,6 +166,7 @@ struct SelectorQueryOutputFormatterTests {
         let report = SelectorQueryExecutionReport(
             request: request,
             elapsedMilliseconds: 2,
+            traversedCount: 14,
             matchedCount: 1,
             shownCount: 1,
             results: [

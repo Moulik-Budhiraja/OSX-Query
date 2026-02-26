@@ -1,5 +1,10 @@
 import Foundation
 
+public struct OXQSelectorEvaluation<Node> {
+    public let matches: [Node]
+    public let traversedNodeCount: Int
+}
+
 @MainActor
 public final class OXQSelectorEngine<Node: Hashable> {
     // MARK: Lifecycle
@@ -24,8 +29,21 @@ public final class OXQSelectorEngine<Node: Hashable> {
         maxDepth: Int = AXMiscConstants.defaultMaxDepthSearch,
         memoizationContext: OXQQueryMemoizationContext<Node>? = nil) throws -> [Node]
     {
+        try self.findAllWithMetrics(
+            matching: query,
+            from: root,
+            maxDepth: maxDepth,
+            memoizationContext: memoizationContext).matches
+    }
+
+    public func findAllWithMetrics(
+        matching query: String,
+        from root: Node,
+        maxDepth: Int = AXMiscConstants.defaultMaxDepthSearch,
+        memoizationContext: OXQQueryMemoizationContext<Node>? = nil) throws -> OXQSelectorEvaluation<Node>
+    {
         let syntaxTree = try self.parser.parse(query)
-        return self.findAll(
+        return self.findAllWithMetrics(
             matching: syntaxTree,
             from: root,
             maxDepth: maxDepth,
@@ -51,6 +69,19 @@ public final class OXQSelectorEngine<Node: Hashable> {
         maxDepth: Int = AXMiscConstants.defaultMaxDepthSearch,
         memoizationContext: OXQQueryMemoizationContext<Node>? = nil) -> [Node]
     {
+        self.findAllWithMetrics(
+            matching: syntaxTree,
+            from: root,
+            maxDepth: maxDepth,
+            memoizationContext: memoizationContext).matches
+    }
+
+    public func findAllWithMetrics(
+        matching syntaxTree: OXQSyntaxTree,
+        from root: Node,
+        maxDepth: Int = AXMiscConstants.defaultMaxDepthSearch,
+        memoizationContext: OXQQueryMemoizationContext<Node>? = nil) -> OXQSelectorEvaluation<Node>
+    {
         let safeMaxDepth = max(0, maxDepth)
         let memoization = memoizationContext ?? self.makeMemoizationContext()
         let needsRoleIndex = syntaxTree.requiresRoleLookups
@@ -64,7 +95,10 @@ public final class OXQSelectorEngine<Node: Hashable> {
             indexedTree: indexedTree,
             roleProvider: { memoization.role(of: $0) },
             attributeValueProvider: { memoization.attributeValue(of: $0, attributeName: $1) })
-        return evaluator.evaluateAll()
+        let matches = evaluator.evaluateAll()
+        return OXQSelectorEvaluation(
+            matches: matches,
+            traversedNodeCount: indexedTree.nodesInTraversalOrder.count)
     }
 
     public func findFirst(

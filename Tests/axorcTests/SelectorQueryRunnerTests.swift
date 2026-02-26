@@ -20,7 +20,7 @@ struct SelectorQueryRunnerTests {
         let runner = SelectorQueryRunner(
             queryExecutor: { request in
                 capturedRequest = request
-                return SelectorQueryResult(matchedCount: 3, shown: [
+                return SelectorQueryResult(traversedCount: 9, matchedCount: 3, shown: [
                     SelectorMatchSummary(role: "AXButton", computedName: nil, title: "A", value: nil, identifier: nil, descriptionText: nil, path: nil),
                     SelectorMatchSummary(role: "AXButton", computedName: nil, title: "B", value: nil, identifier: nil, descriptionText: nil, path: nil),
                 ])
@@ -37,6 +37,7 @@ struct SelectorQueryRunnerTests {
         #expect(capturedRequest?.limit == 2)
         #expect(capturedRequest?.showPath == false)
 
+        #expect(report.traversedCount == 9)
         #expect(report.matchedCount == 3)
         #expect(report.shownCount == 2)
         #expect(report.results.count == 2)

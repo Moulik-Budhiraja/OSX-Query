@@ -51,7 +51,7 @@ enum SelectorQueryOutputFormatter {
 
     private static func statsLine(for report: SelectorQueryExecutionReport) -> String {
         let elapsed = String(format: "%.2f", report.elapsedMilliseconds)
-        return "stats app=\(report.request.appIdentifier) selector=\"\(self.sanitize(report.request.selector, maxLength: 120))\" elapsed_ms=\(elapsed) matched=\(report.matchedCount) shown=\(report.shownCount)"
+        return "stats app=\(report.request.appIdentifier) selector=\"\(self.sanitize(report.request.selector, maxLength: 120))\" elapsed_ms=\(elapsed) traversed=\(report.traversedCount) matched=\(report.matchedCount) shown=\(report.shownCount)"
     }
 
     private static func sanitize(_ value: String, maxLength: Int = 120) -> String {

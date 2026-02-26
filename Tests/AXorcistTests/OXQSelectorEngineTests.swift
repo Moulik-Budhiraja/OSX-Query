@@ -333,6 +333,34 @@ struct OXQSelectorEngineTests {
         #expect(fixture.ids(matches) == ["buttonSave", "buttonCancel"])
         #expect(roleProbe.totalReads == fixture.nodeCount)
     }
+
+    @Test("reports traversed node count for query")
+    func reportsTraversedNodeCount() throws {
+        let fixture = FakeTreeFixture()
+        let engine = fixture.makeEngine()
+
+        let evaluation = try engine.findAllWithMetrics(
+            matching: "AXButton",
+            from: fixture.root,
+            maxDepth: 10)
+
+        #expect(fixture.ids(evaluation.matches) == ["buttonSave", "buttonCancel"])
+        #expect(evaluation.traversedNodeCount == fixture.nodeCount)
+    }
+
+    @Test("reports traversed node count with max depth applied")
+    func reportsTraversedNodeCountWithMaxDepth() throws {
+        let fixture = FakeTreeFixture()
+        let engine = fixture.makeEngine()
+
+        let evaluation = try engine.findAllWithMetrics(
+            matching: "*",
+            from: fixture.root,
+            maxDepth: 3)
+
+        #expect(fixture.ids(evaluation.matches).count == 13)
+        #expect(evaluation.traversedNodeCount == 13)
+    }
 }
 
 private struct FakeNode: Hashable, Sendable {
