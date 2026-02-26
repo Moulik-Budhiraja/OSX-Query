@@ -32,8 +32,7 @@ struct AXORCCommand: ParsableCommand {
         let version = MainActor.assumeIsolated { axorcVersion }
         return CommandDescription(
             commandName: "axorc",
-            // Use axorcVersion from AXORCModels.swift or a shared constant place
-            abstract: "AXORC CLI - JSON command mode and OXQ selector query mode. Version \(version)")
+            abstract: "AXORC CLI - OXQ selector query mode. Version \(version)")
     }
 
     // `--debug` now enables *normal* diagnostic output. Use the new `--verbose` flag for the extremely chatty logs.
@@ -42,15 +41,6 @@ struct AXORCCommand: ParsableCommand {
 
     @Flag(name: .long, help: "Enable *verbose* debug logging – every internal step. Produces large output.")
     var verbose: Bool = false
-
-    @Flag(name: .long, help: "Read JSON payload from STDIN.")
-    var stdin: Bool = false
-
-    @Option(name: .long, help: "Read JSON payload from the specified file path.")
-    var file: String?
-
-    @Option(name: .long, help: "Read JSON payload directly from this string argument, expecting a JSON string.")
-    var json: String?
 
     @Option(name: .long, help: "Target app for selector mode (bundle id, app name, PID, or 'focused').")
     var app: String?
@@ -110,12 +100,6 @@ struct AXORCCommand: ParsableCommand {
 
     @Flag(name: .customLong("no-stop-first"), help: "Do not stop at first match; collect deeper matches as well.")
     var noStopFirst: Bool = false
-
-    @Argument(
-        help: logSegments(
-            "Read JSON payload directly from this string argument.",
-            "Ignored when other input flags (--stdin, --file, --json) are provided."))
-    var directPayload: String?
 
     @MainActor
     private var suppressFinalLogDump = false
@@ -239,37 +223,8 @@ struct AXORCCommand: ParsableCommand {
             return
         }
 
-        let inputResult = InputHandler.parseInput(
-            stdin: self.stdin,
-            file: self.file,
-            json: self.json,
-            directPayload: self.directPayload)
-        axorcInputSource = inputResult.sourceDescription
-
-        let axorcistInstance = AXorcist.shared
-
-        if self.handleInputError(inputResult) {
-            return
-        }
-
-        guard let jsonStringFromInput = inputResult.jsonString else {
-            self.handleMissingInput()
-            return
-        }
-
-        self.logDebug(
-            logSegments(
-                "AXORCMain Test: Received jsonStringFromInput",
-                "[\(jsonStringFromInput)]",
-                "length: \(jsonStringFromInput.count)"))
-
-        try self.decodeAndExecute(
-            jsonString: jsonStringFromInput,
-            axorcist: axorcistInstance)
-
-        if self.debug, self.commandShouldPrintLogsAtEnd() {
-            self.flushDebugLogs()
-        }
+        throw ValidationError(
+            "No CLI mode selected. Use --app with --selector (or -i) for querying, or --enable-ax for AX exposure.")
     }
 
     private func configureLogging() {
@@ -324,8 +279,7 @@ struct AXORCCommand: ParsableCommand {
     }
 
     private func hasAnyStructuredInput() -> Bool {
-        let hasPositionalPayload = !(self.directPayload?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        return self.stdin || self.file != nil || self.json != nil || hasPositionalPayload
+        false
     }
 
     private func hasAnySelectorInput() -> Bool {
@@ -534,7 +488,6 @@ extension AXORCCommand {
     private mutating func apply(parsedValues: ParsedValues) throws {
         self.debug = parsedValues.flags.contains("debug")
         self.verbose = parsedValues.flags.contains("verbose")
-        self.stdin = parsedValues.flags.contains("stdin")
         self.scanAll = parsedValues.flags.contains("scanAll")
         self.noStopFirst = parsedValues.flags.contains("noStopFirst")
         self.noColor = parsedValues.flags.contains("noColor")
@@ -543,14 +496,6 @@ extension AXORCCommand {
         self.interactive = parsedValues.flags.contains("interactive")
         self.refocusTerminal = parsedValues.flags.contains("refocusTerminal")
         self.submitAfterSetValue = parsedValues.flags.contains("submitAfterSetValue")
-
-        if let fileValue = parsedValues.options["file"]?.last {
-            self.file = fileValue
-        }
-
-        if let jsonValue = parsedValues.options["json"]?.last {
-            self.json = jsonValue
-        }
 
         if let timeoutString = parsedValues.options["timeout"]?.last {
             guard let timeoutValue = Int(timeoutString) else {
@@ -599,8 +544,6 @@ extension AXORCCommand {
         if let enableAppAxValue = parsedValues.options["enableAppAx"]?.last {
             self.enableAppAx = enableAppAxValue
         }
-
-        self.directPayload = parsedValues.positional.first
     }
 
     private static func emitArgumentError(message: String) {

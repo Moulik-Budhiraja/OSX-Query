@@ -35,52 +35,16 @@ struct AnyDecodable: Decodable {
 struct ApplicationQueryTests {
     @Test("Collect all running applications", .tags(.safe))
     func getAllApplications() async throws {
-        let command = CommandEnvelope(
-            commandId: "test-get-all-apps",
-            command: .collectAll,
-            attributes: ["AXRole", "AXTitle", "AXIdentifier"],
-            debugLogging: true,
-            locator: Locator(criteria: [Criterion(attribute: "AXRole", value: "AXApplication")]),
-            maxDepth: 3,
-            outputFormat: .verbose)
-
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = .prettyPrinted
-        let jsonData = try encoder.encode(command)
-        guard let jsonString = String(data: jsonData, encoding: String.Encoding.utf8) else {
-            throw TestError.generic("Failed to create JSON")
-        }
-
-        let result = try runAXORCCommand(arguments: [jsonString])
-
+        let result = try runAXORCCommand(arguments: [
+            "--app", "focused",
+            "--selector", "AXApplication",
+            "--max-depth", "1",
+            "--limit", "5",
+            "--no-color",
+        ])
         #expect(result.exitCode == 0, "Command should succeed")
-        #expect(result.output != nil, "Should have output")
-
-        guard let output = result.output,
-              let responseData = output.data(using: String.Encoding.utf8)
-        else {
-            throw TestError.generic("No output")
-        }
-
-        if let response = try? JSONDecoder().decode(QueryResponse.self, from: responseData) {
-            #expect(response.success)
-            if let data = response.data {
-                #expect(data.attributes != nil, "Should have attributes")
-            } else {
-                Issue.record("CollectAll query response had no data payload")
-            }
-        } else if
-            let jsonObject = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
-            let data = jsonObject["data"] as? [String: Any],
-            let count = data["count"] as? Int,
-            let elements = data["elements"] as? [[String: Any]]
-        {
-            #expect(count > 0, "CollectAll response should report at least one element")
-            #expect(!elements.isEmpty, "CollectAll response should include element payloads")
-        } else {
-            let fallback = String(data: responseData, encoding: .utf8) ?? "<non-UTF8>"
-            Issue.record("Unexpected response payload for collectAll: \(fallback)")
-        }
+        #expect(result.output?.contains("stats app=focused") == true, "Should include selector stats header")
+        #expect(result.output?.contains("AXApplication") == true, "Should include AXApplication match rows")
     }
 
     @Test(
@@ -101,60 +65,24 @@ struct ApplicationQueryTests {
 
         try await Task.sleep(for: .seconds(1))
 
-        let command = CommandEnvelope(
-            commandId: "test-get-windows",
-            command: .query,
-            application: "TextEdit",
-            debugLogging: true,
-            locator: Locator(criteria: [Criterion(attribute: "AXRole", value: "AXWindow")]),
-            outputFormat: .verbose)
-
-        let encoder = JSONEncoder()
-        let jsonData = try encoder.encode(command)
-        guard let jsonString = String(data: jsonData, encoding: String.Encoding.utf8) else {
-            throw TestError.generic("Failed to create JSON")
-        }
-
-        let result = try runAXORCCommand(arguments: [jsonString])
+        let result = try runAXORCCommand(arguments: [
+            "--app", "TextEdit",
+            "--selector", "AXWindow",
+            "--limit", "10",
+            "--no-color",
+        ])
         #expect(result.exitCode == 0)
-
-        guard let output = result.output,
-              let responseData = output.data(using: String.Encoding.utf8)
-        else {
-            throw TestError.generic("No output")
-        }
-
-        let response = try JSONDecoder().decode(QueryResponse.self, from: responseData)
-
-        #expect(response.success)
-        if let data = response.data {
-            if let roleValue = data.attributes?["AXRole"] {
-                #expect(roleValue.stringValue == "AXWindow")
-            }
-            if let titleValue = data.attributes?["AXTitle"] {
-                #expect(titleValue.stringValue != nil, "Window should have title")
-            }
-        }
+        #expect(result.output?.contains("AXWindow") == true, "Output should include AXWindow entries")
     }
 
     @Test("Query non-existent application", .tags(.safe))
     func queryNonExistentApp() async throws {
-        let command = CommandEnvelope(
-            commandId: "test-nonexistent",
-            command: .query,
-            application: "NonExistentApp12345",
-            debugLogging: true,
-            locator: Locator(criteria: [Criterion(attribute: "AXRole", value: "AXApplication")]))
+        let result = try runAXORCCommand(arguments: [
+            "--app", "NonExistentApp12345",
+            "--selector", "*",
+        ])
 
-        let encoder = JSONEncoder()
-        let jsonData = try encoder.encode(command)
-        guard let jsonString = String(data: jsonData, encoding: String.Encoding.utf8) else {
-            throw TestError.generic("Failed to create JSON")
-        }
-
-        let result = try runAXORCCommand(arguments: [jsonString])
-
-        #expect(result.exitCode == 0, "Command should succeed even when no elements found")
+        #expect(result.exitCode != 0, "Command should fail when target app is not running")
 
         guard let output = result.output,
               let responseData = output.data(using: String.Encoding.utf8)
@@ -162,21 +90,8 @@ struct ApplicationQueryTests {
             throw TestError.generic("No output")
         }
 
-        if let response = try? JSONDecoder().decode(SimpleSuccessResponse.self, from: responseData) {
-            if response.success {
-                let message = response.message
-                #expect(
-                    message.contains("No") || message.contains("not found") || message.isEmpty,
-                    "Message should indicate no elements found or be empty")
-            }
-        } else if let jsonObject = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] {
-            let message = (jsonObject["message"] as? String) ?? (jsonObject["error"] as? String) ?? ""
-            #expect(
-                message.contains("No") || message.contains("not found") || message.contains("error") || message.isEmpty,
-                "Message should indicate no elements found or be empty")
-        } else {
-            let rawOutput = String(data: responseData, encoding: .utf8) ?? "<non-UTF8 response>"
-            Issue.record("Unexpected response for nonexistent app: \(rawOutput)")
-        }
+        let errorResponse = try JSONDecoder().decode(ErrorResponse.self, from: responseData)
+        #expect(errorResponse.commandId == "argument_error")
+        #expect(errorResponse.error.message.contains("Could not find a running app"))
     }
 }
