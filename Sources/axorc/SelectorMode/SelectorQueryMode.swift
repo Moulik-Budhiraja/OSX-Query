@@ -20,6 +20,7 @@ enum SelectorQueryCLIError: LocalizedError, Equatable {
     case submitFlagRequiresSetValue
     case interactionTargetOutOfBounds(index: Int, matchedCount: Int)
     case interactionFailed(action: String, index: Int)
+    case cachedSnapshotUnavailable(String)
 
     var errorDescription: String? {
         switch self {
@@ -53,6 +54,8 @@ enum SelectorQueryCLIError: LocalizedError, Equatable {
             "--result-index \(index) is out of bounds for \(matchedCount) matched elements."
         case let .interactionFailed(action, index):
             "Interaction '\(action)' failed for result index \(index)."
+        case let .cachedSnapshotUnavailable(message):
+            message
         }
     }
 }
@@ -104,6 +107,7 @@ struct SelectorQueryRequest: Equatable {
     let showPath: Bool
     let showNameSource: Bool
     let cacheSessionEnabled: Bool
+    let useCachedSnapshot: Bool
     let interaction: SelectorInteractionRequest?
 
     init(
@@ -115,6 +119,7 @@ struct SelectorQueryRequest: Equatable {
         showPath: Bool,
         showNameSource: Bool = false,
         cacheSessionEnabled: Bool = false,
+        useCachedSnapshot: Bool = false,
         interaction: SelectorInteractionRequest? = nil)
     {
         self.appIdentifier = appIdentifier
@@ -125,6 +130,7 @@ struct SelectorQueryRequest: Equatable {
         self.showPath = showPath
         self.showNameSource = showNameSource
         self.cacheSessionEnabled = cacheSessionEnabled
+        self.useCachedSnapshot = useCachedSnapshot
         self.interaction = interaction
     }
 }
@@ -143,6 +149,7 @@ enum SelectorQueryRequestBuilder {
         showPath: Bool,
         showNameSource: Bool = false,
         cacheSession: Bool = false,
+        useCached: Bool = false,
         interaction: String? = nil,
         interactionValue: String? = nil,
         submitAfterSetValue: Bool = false,
@@ -260,7 +267,8 @@ enum SelectorQueryRequestBuilder {
             colorEnabled: stdoutSupportsANSI && !noColor,
             showPath: showPath,
             showNameSource: showNameSource,
-            cacheSessionEnabled: cacheSession,
+            cacheSessionEnabled: cacheSession || useCached,
+            useCachedSnapshot: useCached,
             interaction: interactionRequest)
     }
 }
@@ -554,12 +562,13 @@ private enum LiveSelectorQueryExecutor {
         let syntaxTree = try OXQParser().parse(request.selector)
         let prefetchedAttributeNames = self.prefetchAttributeNames(for: syntaxTree)
         let rootPID = root.pid() ?? 0
-        let prefetchedSnapshot = self.resolvePrefetchedSnapshot(
+        let prefetchedSnapshot = try self.resolvePrefetchedSnapshot(
             root: root,
             rootPID: rootPID,
             maxDepth: request.maxDepth,
             requiredAttributeNames: prefetchedAttributeNames,
-            cacheSessionEnabled: request.cacheSessionEnabled)
+            cacheSessionEnabled: request.cacheSessionEnabled,
+            useCachedSnapshot: request.useCachedSnapshot)
 
         let childrenProvider: (Element) -> [Element] = { element in
             prefetchedSnapshot.childrenByElement[element] ?? []
@@ -646,14 +655,34 @@ private enum LiveSelectorQueryExecutor {
         rootPID: pid_t,
         maxDepth: Int,
         requiredAttributeNames: Set<String>,
-        cacheSessionEnabled: Bool) -> SelectorPrefetchSnapshot
+        cacheSessionEnabled: Bool,
+        useCachedSnapshot: Bool) throws -> SelectorPrefetchSnapshot
     {
-        if cacheSessionEnabled,
-           let cached = self.prefetchCache,
-           cached.appPID == rootPID,
-           cached.maxDepth >= maxDepth,
-           cached.prefetchedAttributeNames.isSuperset(of: requiredAttributeNames)
-        {
+        guard cacheSessionEnabled else {
+            self.prefetchCache = nil
+            return self.prefetchSnapshot(
+                root: root,
+                maxDepth: maxDepth,
+                attributeNames: requiredAttributeNames)
+        }
+
+        if useCachedSnapshot {
+            guard let cached = self.prefetchCache else {
+                throw SelectorQueryCLIError.cachedSnapshotUnavailable(
+                    "No warm cached snapshot available. Run the query once with --cache-session first.")
+            }
+            guard cached.appPID == rootPID else {
+                throw SelectorQueryCLIError.cachedSnapshotUnavailable(
+                    "Cached snapshot belongs to another app process. Refresh with --cache-session.")
+            }
+            guard cached.maxDepth >= maxDepth else {
+                throw SelectorQueryCLIError.cachedSnapshotUnavailable(
+                    "Cached snapshot depth (\(cached.maxDepth)) is shallower than requested depth (\(maxDepth)). Refresh with --cache-session.")
+            }
+            guard cached.prefetchedAttributeNames.isSuperset(of: requiredAttributeNames) else {
+                throw SelectorQueryCLIError.cachedSnapshotUnavailable(
+                    "Cached snapshot is missing attributes required by this selector. Refresh with --cache-session.")
+            }
             return cached.snapshot
         }
 
@@ -662,15 +691,11 @@ private enum LiveSelectorQueryExecutor {
             maxDepth: maxDepth,
             attributeNames: requiredAttributeNames)
 
-        if cacheSessionEnabled {
-            self.prefetchCache = SelectorPrefetchCacheEntry(
-                appPID: rootPID,
-                maxDepth: maxDepth,
-                prefetchedAttributeNames: requiredAttributeNames,
-                snapshot: snapshot)
-        } else {
-            self.prefetchCache = nil
-        }
+        self.prefetchCache = SelectorPrefetchCacheEntry(
+            appPID: rootPID,
+            maxDepth: maxDepth,
+            prefetchedAttributeNames: requiredAttributeNames,
+            snapshot: snapshot)
 
         return snapshot
     }

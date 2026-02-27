@@ -51,6 +51,8 @@ enum SelectorCacheDaemonError: LocalizedError {
 
 @MainActor
 enum SelectorCacheDaemonServer {
+    private static let idleTimeoutSeconds: Int = 600
+
     static func run(socketPath: String) throws {
         let serverFD = try SelectorCacheSocketTransport.makeServerSocket(path: socketPath)
         defer {
@@ -61,6 +63,19 @@ enum SelectorCacheDaemonServer {
         let runner = SelectorQueryRunner()
 
         while true {
+            var pollDescriptor = pollfd(fd: serverFD, events: Int16(POLLIN), revents: 0)
+            let timeoutMilliseconds = Int32(self.idleTimeoutSeconds * 1000)
+            let ready = Darwin.poll(&pollDescriptor, 1, timeoutMilliseconds)
+            if ready == 0 {
+                return
+            }
+            if ready < 0 {
+                if errno == EINTR {
+                    continue
+                }
+                throw SelectorCacheDaemonError.socketAcceptFailed(String(cString: strerror(errno)))
+            }
+
             let clientFD = Darwin.accept(serverFD, nil, nil)
             if clientFD < 0 {
                 if errno == EINTR {
@@ -189,6 +204,7 @@ private struct SelectorCacheDaemonPayload: Codable {
     let colorEnabled: Bool
     let showPath: Bool
     let showNameSource: Bool
+    let useCachedSnapshot: Bool
     let interaction: SelectorCacheDaemonInteractionPayload?
 
     init(request: SelectorQueryRequest) {
@@ -199,6 +215,7 @@ private struct SelectorCacheDaemonPayload: Codable {
         self.colorEnabled = request.colorEnabled
         self.showPath = request.showPath
         self.showNameSource = request.showNameSource
+        self.useCachedSnapshot = request.useCachedSnapshot
         self.interaction = SelectorCacheDaemonInteractionPayload(request.interaction)
     }
 
@@ -212,6 +229,7 @@ private struct SelectorCacheDaemonPayload: Codable {
             showPath: self.showPath,
             showNameSource: self.showNameSource,
             cacheSessionEnabled: true,
+            useCachedSnapshot: self.useCachedSnapshot,
             interaction: self.interaction?.toInteractionRequest())
     }
 }

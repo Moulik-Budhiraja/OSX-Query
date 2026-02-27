@@ -131,6 +131,26 @@ struct SelectorQueryRequestBuilderTests {
             stdoutSupportsANSI: true)
 
         #expect(request?.cacheSessionEnabled == true)
+        #expect(request?.useCachedSnapshot == false)
+    }
+
+    @Test("Use-cached enables cache session and warm-cache mode")
+    func useCachedEnablesWarmCacheMode() throws {
+        let request = try SelectorQueryRequestBuilder.build(
+            app: "com.apple.TextEdit",
+            selector: "AXButton",
+            maxDepth: nil,
+            limit: nil,
+            noColor: true,
+            showPath: false,
+            showNameSource: false,
+            cacheSession: false,
+            useCached: true,
+            hasStructuredInput: false,
+            stdoutSupportsANSI: true)
+
+        #expect(request?.cacheSessionEnabled == true)
+        #expect(request?.useCachedSnapshot == true)
     }
 
     @Test("Builds click interaction request when provided")

@@ -74,6 +74,11 @@ struct AXORCCommand: ParsableCommand {
         help: "Use a background daemon to reuse the last prefetched tree across selector CLI calls.")
     var cacheSession: Bool = false
 
+    @Flag(
+        name: .customLong("use-cached"),
+        help: "Use the warm cached tree from the last --cache-session query (no refresh).")
+    var useCached: Bool = false
+
     @Option(name: .customLong("result-index"), help: "1-based matched selector result index to target for interaction.")
     var selectorResultIndex: Int?
 
@@ -301,7 +306,7 @@ struct AXORCCommand: ParsableCommand {
         return hasApp || hasSelector || self.selectorMaxDepth != nil || self.limit != nil || self.noColor ||
             self.showPath || self.showNameSource || self.selectorResultIndex != nil || self.interaction != nil ||
             self.interactionValue != nil || self.submitAfterSetValue || self.interactive || self.refocusTerminal ||
-            self.cacheSession
+            self.cacheSession || self.useCached
     }
 
     private mutating func buildAXExposureRequestIfNeeded() throws -> AXExposureRequest? {
@@ -373,6 +378,7 @@ struct AXORCCommand: ParsableCommand {
                 showPath: self.showPath,
                 showNameSource: self.showNameSource,
                 cacheSession: self.cacheSession,
+                useCached: self.useCached,
                 interaction: self.interaction,
                 interactionValue: self.interactionValue,
                 submitAfterSetValue: self.submitAfterSetValue,
@@ -400,6 +406,8 @@ struct AXORCCommand: ParsableCommand {
             throw ValidationError("Invalid selector query: \(parseError.description)")
         } catch let selectorError as SelectorQueryCLIError {
             throw ValidationError(selectorError.localizedDescription)
+        } catch let cacheError as SelectorCacheDaemonError {
+            throw ValidationError(cacheError.localizedDescription)
         }
     }
 
@@ -513,6 +521,7 @@ extension AXORCCommand {
         self.showPath = parsedValues.flags.contains("showPath")
         self.showNameSource = parsedValues.flags.contains("showNameSource")
         self.cacheSession = parsedValues.flags.contains("cacheSession")
+        self.useCached = parsedValues.flags.contains("useCached")
         self.interactive = parsedValues.flags.contains("interactive")
         self.refocusTerminal = parsedValues.flags.contains("refocusTerminal")
         self.submitAfterSetValue = parsedValues.flags.contains("submitAfterSetValue")
