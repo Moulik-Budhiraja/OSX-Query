@@ -389,7 +389,7 @@ struct SelectorMatchSummary: Equatable {
         self.path = includePath ? SelectorMatchSummary.normalize(element.generatePathString()) : nil
     }
 
-    private static func normalize(_ value: String?) -> String? {
+    static func normalize(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
             return nil
         }
@@ -547,7 +547,8 @@ private enum LiveSelectorQueryExecutor {
         let memoizationContext = OXQQueryMemoizationContext<Element>(
             childrenProvider: childrenProvider,
             roleProvider: roleProvider,
-            attributeValueProvider: attributeValueProvider)
+            attributeValueProvider: attributeValueProvider,
+            preferDerivedComputedName: true)
 
         let evaluation = try selectorEngine.findAllWithMetrics(
             matching: request.selector,
@@ -568,13 +569,26 @@ private enum LiveSelectorQueryExecutor {
                 of: element,
                 attributeName: AXAttributeNames.kAXFocusedAttribute))
             let childCount = memoizationContext.children(of: element).count
+            let computedNameDetails = memoizationContext.computedNameDetails(of: element)
+            let roleName = memoizationContext.role(of: element) ?? "AXUnknown"
+            let value = memoizationContext.attributeValue(of: element, attributeName: AXAttributeNames.kAXValueAttribute) ??
+                memoizationContext.attributeValue(of: element, attributeName: AXAttributeNames.kAXSelectedTextAttribute)
 
             return SelectorMatchSummary(
-                element: element,
-                includePath: request.showPath,
+                role: roleName,
+                computedName: SelectorMatchSummary.normalize(computedNameDetails?.value),
+                computedNameSource: SelectorMatchSummary.normalize(computedNameDetails?.source),
                 isEnabled: isEnabled,
                 isFocused: isFocused,
-                childCount: childCount)
+                childCount: childCount,
+                title: SelectorMatchSummary.normalize(
+                    memoizationContext.attributeValue(of: element, attributeName: AXAttributeNames.kAXTitleAttribute)),
+                value: SelectorMatchSummary.normalize(value),
+                identifier: SelectorMatchSummary.normalize(
+                    memoizationContext.attributeValue(of: element, attributeName: AXAttributeNames.kAXIdentifierAttribute)),
+                descriptionText: SelectorMatchSummary.normalize(
+                    memoizationContext.attributeValue(of: element, attributeName: AXAttributeNames.kAXDescriptionAttribute)),
+                path: request.showPath ? SelectorMatchSummary.normalize(element.generatePathString()) : nil)
         }
 
         return SelectorQueryResult(

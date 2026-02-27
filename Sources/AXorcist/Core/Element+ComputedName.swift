@@ -23,9 +23,8 @@ extension Element {
     /// Computes a human-readable name and reports the source attribute used.
     @MainActor
     public func computedNameDetails() -> ComputedNameDetails? {
-        let elementDescription = briefDescription(option: .raw)
         let roleName = self.role()
-        let valueCandidate = self.valueCandidateForComputedName()
+        lazy var valueCandidate = self.valueCandidateForComputedName()
 
         func nonEmpty(_ value: String?) -> String? {
             guard let value, !value.isEmpty else { return nil }
@@ -68,7 +67,7 @@ extension Element {
                 let resolved = self.logComputedName(
                     source: candidate.source,
                     value: value,
-                    elementDescription: elementDescription)
+                    elementDescription: self.briefDescription(option: .raw))
                 return ComputedNameDetails(value: resolved, source: candidate.source)
             }
         }
@@ -78,29 +77,35 @@ extension Element {
             let resolved = self.logComputedName(
                 source: "AXRole",
                 value: cleanRole,
-                elementDescription: elementDescription)
+                elementDescription: self.briefDescription(option: .raw))
             return ComputedNameDetails(value: resolved, source: "AXRole")
         }
 
-        self.logMissingComputedName(elementDescription: elementDescription)
+        self.logMissingComputedName(elementDescription: self.briefDescription(option: .raw))
         return nil
     }
 
-    private func logComputedName(source: String, value: String, elementDescription: String) -> String {
+    private func logComputedName(source: String, value: String, elementDescription: @autoclosure () -> String) -> String {
+        guard self.shouldEmitComputedNameDebugLogs else { return value }
         let message = [
             "ComputedName: Using \(source)",
-            "'\(value)' for \(elementDescription)",
+            "'\(value)' for \(elementDescription())",
         ].joined(separator: " ")
         GlobalAXLogger.shared.log(AXLogEntry(level: .debug, message: message))
         return value
     }
 
-    private func logMissingComputedName(elementDescription: String) {
+    private func logMissingComputedName(elementDescription: @autoclosure () -> String) {
+        guard self.shouldEmitComputedNameDebugLogs else { return }
         let message = [
             "ComputedName: No suitable attribute found for",
-            "\(elementDescription). Returning nil.",
+            "\(elementDescription()). Returning nil.",
         ].joined(separator: " ")
         GlobalAXLogger.shared.log(AXLogEntry(level: .debug, message: message))
+    }
+
+    private var shouldEmitComputedNameDebugLogs: Bool {
+        GlobalAXLogger.shared.isLoggingEnabled && GlobalAXLogger.shared.detailLevel == .verbose
     }
 
     private func isTextLikeRole(_ role: String?) -> Bool {
