@@ -50,6 +50,7 @@ enum AXORCHelpFormatter {
         for option in signature.options {
             let names = canonicalNames(from: option.names)
             guard !names.isEmpty else { continue }
+            if self.isInternalOnly(names: names) { continue }
             let placeholder: String
             switch option.parsing {
             case .singleValue:
@@ -66,6 +67,7 @@ enum AXORCHelpFormatter {
         for flag in signature.flags {
             let names = canonicalNames(from: flag.names)
             guard !names.isEmpty else { continue }
+            if self.isInternalOnly(names: names) { continue }
             let left = names.joined(separator: ", ")
             rows.append((left, flag.help ?? ""))
         }
@@ -91,5 +93,9 @@ enum AXORCHelpFormatter {
                 return "--\(value)"
             }
         }
+    }
+
+    private static func isInternalOnly(names: [String]) -> Bool {
+        names.contains("--selector-cache-daemon") || names.contains("--selector-cache-daemon-socket")
     }
 }

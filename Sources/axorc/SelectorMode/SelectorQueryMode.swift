@@ -103,6 +103,7 @@ struct SelectorQueryRequest: Equatable {
     let colorEnabled: Bool
     let showPath: Bool
     let showNameSource: Bool
+    let cacheSessionEnabled: Bool
     let interaction: SelectorInteractionRequest?
 
     init(
@@ -113,6 +114,7 @@ struct SelectorQueryRequest: Equatable {
         colorEnabled: Bool,
         showPath: Bool,
         showNameSource: Bool = false,
+        cacheSessionEnabled: Bool = false,
         interaction: SelectorInteractionRequest? = nil)
     {
         self.appIdentifier = appIdentifier
@@ -122,6 +124,7 @@ struct SelectorQueryRequest: Equatable {
         self.colorEnabled = colorEnabled
         self.showPath = showPath
         self.showNameSource = showNameSource
+        self.cacheSessionEnabled = cacheSessionEnabled
         self.interaction = interaction
     }
 }
@@ -139,6 +142,7 @@ enum SelectorQueryRequestBuilder {
         noColor: Bool,
         showPath: Bool,
         showNameSource: Bool = false,
+        cacheSession: Bool = false,
         interaction: String? = nil,
         interactionValue: String? = nil,
         submitAfterSetValue: Bool = false,
@@ -256,6 +260,7 @@ enum SelectorQueryRequestBuilder {
             colorEnabled: stdoutSupportsANSI && !noColor,
             showPath: showPath,
             showNameSource: showNameSource,
+            cacheSessionEnabled: cacheSession,
             interaction: interactionRequest)
     }
 }
@@ -526,11 +531,19 @@ private enum LiveSelectorQueryExecutor {
         let prefetchedAttributeNames: Set<String>
     }
 
+    private struct SelectorPrefetchCacheEntry {
+        let appPID: pid_t
+        let maxDepth: Int
+        let prefetchedAttributeNames: Set<String>
+        let snapshot: SelectorPrefetchSnapshot
+    }
+
     private static let setValueSubmitStepDelaySeconds: TimeInterval = 0.2
     private static let sendKeystrokesSubmitStepDelaySeconds: TimeInterval = 0.3
     private static let postActivationClickDelaySeconds: TimeInterval = 0.2
     private static let textInputFocusRetryDelaySeconds: TimeInterval = 0.2
     private static let textInputFocusRetryMaxAttempts: Int = 7
+    private static var prefetchCache: SelectorPrefetchCacheEntry?
 
     static func execute(_ request: SelectorQueryRequest) throws -> SelectorQueryResult
     {
@@ -540,10 +553,13 @@ private enum LiveSelectorQueryExecutor {
 
         let syntaxTree = try OXQParser().parse(request.selector)
         let prefetchedAttributeNames = self.prefetchAttributeNames(for: syntaxTree)
-        let prefetchedSnapshot = self.prefetchSnapshot(
+        let rootPID = root.pid() ?? 0
+        let prefetchedSnapshot = self.resolvePrefetchedSnapshot(
             root: root,
+            rootPID: rootPID,
             maxDepth: request.maxDepth,
-            attributeNames: prefetchedAttributeNames)
+            requiredAttributeNames: prefetchedAttributeNames,
+            cacheSessionEnabled: request.cacheSessionEnabled)
 
         let childrenProvider: (Element) -> [Element] = { element in
             prefetchedSnapshot.childrenByElement[element] ?? []
@@ -623,6 +639,40 @@ private enum LiveSelectorQueryExecutor {
             matchedCount: matchedElements.count,
             interaction: interactionSummary,
             shown: shownSummaries)
+    }
+
+    private static func resolvePrefetchedSnapshot(
+        root: Element,
+        rootPID: pid_t,
+        maxDepth: Int,
+        requiredAttributeNames: Set<String>,
+        cacheSessionEnabled: Bool) -> SelectorPrefetchSnapshot
+    {
+        if cacheSessionEnabled,
+           let cached = self.prefetchCache,
+           cached.appPID == rootPID,
+           cached.maxDepth >= maxDepth,
+           cached.prefetchedAttributeNames.isSuperset(of: requiredAttributeNames)
+        {
+            return cached.snapshot
+        }
+
+        let snapshot = self.prefetchSnapshot(
+            root: root,
+            maxDepth: maxDepth,
+            attributeNames: requiredAttributeNames)
+
+        if cacheSessionEnabled {
+            self.prefetchCache = SelectorPrefetchCacheEntry(
+                appPID: rootPID,
+                maxDepth: maxDepth,
+                prefetchedAttributeNames: requiredAttributeNames,
+                snapshot: snapshot)
+        } else {
+            self.prefetchCache = nil
+        }
+
+        return snapshot
     }
 
     private static func resolveRootElement(appIdentifier: String) -> Element? {

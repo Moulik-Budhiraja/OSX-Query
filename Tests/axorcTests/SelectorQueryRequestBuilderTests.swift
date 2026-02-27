@@ -116,6 +116,23 @@ struct SelectorQueryRequestBuilderTests {
         #expect(request?.showNameSource == true)
     }
 
+    @Test("Enables cache session when --cache-session is set")
+    func enablesCacheSessionFlag() throws {
+        let request = try SelectorQueryRequestBuilder.build(
+            app: "com.apple.TextEdit",
+            selector: "AXButton",
+            maxDepth: nil,
+            limit: nil,
+            noColor: true,
+            showPath: false,
+            showNameSource: false,
+            cacheSession: true,
+            hasStructuredInput: false,
+            stdoutSupportsANSI: true)
+
+        #expect(request?.cacheSessionEnabled == true)
+    }
+
     @Test("Builds click interaction request when provided")
     func buildsClickInteractionRequest() throws {
         let request = try SelectorQueryRequestBuilder.build(

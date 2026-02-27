@@ -69,6 +69,11 @@ struct AXORCCommand: ParsableCommand {
     @Flag(name: .customLong("show-name-source"), help: "Include computed name source (e.g. AXTitle) per selector match.")
     var showNameSource: Bool = false
 
+    @Flag(
+        name: .customLong("cache-session"),
+        help: "Use a background daemon to reuse the last prefetched tree across selector CLI calls.")
+    var cacheSession: Bool = false
+
     @Option(name: .customLong("result-index"), help: "1-based matched selector result index to target for interaction.")
     var selectorResultIndex: Int?
 
@@ -96,6 +101,12 @@ struct AXORCCommand: ParsableCommand {
 
     @Flag(name: .customLong("no-stop-first"), help: "Do not stop at first match; collect deeper matches as well.")
     var noStopFirst: Bool = false
+
+    @Flag(name: .customLong("selector-cache-daemon"), help: "Internal: run selector cache daemon.")
+    var selectorCacheDaemon: Bool = false
+
+    @Option(name: .customLong("selector-cache-daemon-socket"), help: "Internal: selector cache daemon socket path.")
+    var selectorCacheDaemonSocket: String?
 
     @MainActor
     private var suppressFinalLogDump = false
@@ -204,6 +215,12 @@ struct AXORCCommand: ParsableCommand {
         self.applyGlobalFlags()
         self.logDebugVersion()
 
+        if self.selectorCacheDaemon {
+            let socketPath = self.selectorCacheDaemonSocket ?? SelectorCacheDaemonClient.defaultSocketPath()
+            try SelectorCacheDaemonServer.run(socketPath: socketPath)
+            return
+        }
+
         if let exposureRequest = try self.buildAXExposureRequestIfNeeded() {
             try self.runAXExposureMode(request: exposureRequest)
             return
@@ -283,7 +300,8 @@ struct AXORCCommand: ParsableCommand {
         let hasSelector = !(self.selector?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         return hasApp || hasSelector || self.selectorMaxDepth != nil || self.limit != nil || self.noColor ||
             self.showPath || self.showNameSource || self.selectorResultIndex != nil || self.interaction != nil ||
-            self.interactionValue != nil || self.submitAfterSetValue || self.interactive || self.refocusTerminal
+            self.interactionValue != nil || self.submitAfterSetValue || self.interactive || self.refocusTerminal ||
+            self.cacheSession
     }
 
     private mutating func buildAXExposureRequestIfNeeded() throws -> AXExposureRequest? {
@@ -354,6 +372,7 @@ struct AXORCCommand: ParsableCommand {
                 noColor: self.noColor,
                 showPath: self.showPath,
                 showNameSource: self.showNameSource,
+                cacheSession: self.cacheSession,
                 interaction: self.interaction,
                 interactionValue: self.interactionValue,
                 submitAfterSetValue: self.submitAfterSetValue,
@@ -367,9 +386,14 @@ struct AXORCCommand: ParsableCommand {
 
     private mutating func runSelectorMode(request: SelectorQueryRequest) throws {
         do {
-            let runner = SelectorQueryRunner()
-            let report = try runner.execute(request)
-            print(SelectorQueryOutputFormatter.format(report: report))
+            if request.cacheSessionEnabled {
+                let output = try SelectorCacheDaemonClient().execute(request: request)
+                print(output)
+            } else {
+                let runner = SelectorQueryRunner()
+                let report = try runner.execute(request)
+                print(SelectorQueryOutputFormatter.format(report: report))
+            }
             fflush(stdout)
             axClearLogs()
         } catch let parseError as OXQParseError {
@@ -488,9 +512,11 @@ extension AXORCCommand {
         self.noColor = parsedValues.flags.contains("noColor")
         self.showPath = parsedValues.flags.contains("showPath")
         self.showNameSource = parsedValues.flags.contains("showNameSource")
+        self.cacheSession = parsedValues.flags.contains("cacheSession")
         self.interactive = parsedValues.flags.contains("interactive")
         self.refocusTerminal = parsedValues.flags.contains("refocusTerminal")
         self.submitAfterSetValue = parsedValues.flags.contains("submitAfterSetValue")
+        self.selectorCacheDaemon = parsedValues.flags.contains("selectorCacheDaemon")
 
         if let timeoutString = parsedValues.options["timeout"]?.last {
             guard let timeoutValue = Int(timeoutString) else {
@@ -538,6 +564,10 @@ extension AXORCCommand {
 
         if let enableAppAxValue = parsedValues.options["enableAppAx"]?.last {
             self.enableAppAx = enableAppAxValue
+        }
+
+        if let selectorCacheDaemonSocket = parsedValues.options["selectorCacheDaemonSocket"]?.last {
+            self.selectorCacheDaemonSocket = selectorCacheDaemonSocket
         }
     }
 
