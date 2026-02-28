@@ -465,6 +465,8 @@ enum OXAExecutor {
     private static let postPreflightDelaySeconds: TimeInterval = 0.1
     private static let appActivationTimeoutSeconds: TimeInterval = 1.0
     private static let appActivationPollIntervalSeconds: TimeInterval = 0.05
+    private static let appleScriptActivationTimeoutSeconds: TimeInterval = 0.35
+    private static let processPollIntervalSeconds: TimeInterval = 0.01
     private static var lastActivationFailureDescription: String?
 
     static func execute(programSource: String) throws -> String {
@@ -503,6 +505,11 @@ enum OXAExecutor {
 
             let element = try self.resolveElementReference(reference)
             resolvedElements.append(element)
+        }
+
+        let allTargetsAreMenuContext = resolvedElements.allSatisfy { self.isMenuContextElement($0) }
+        if allTargetsAreMenuContext {
+            return
         }
 
         if let snapshotAppPID = SelectorActionRefStore.snapshotAppPID, snapshotAppPID > 0 {
@@ -704,6 +711,10 @@ enum OXAExecutor {
     }
 
     private static func preflightTargetElement(_ element: Element) {
+        if self.isMenuContextElement(element) {
+            return
+        }
+
         if let window = self.owningWindow(for: element) {
             _ = AXUIElementSetAttributeValue(
                 window.underlyingElement,
@@ -713,6 +724,30 @@ enum OXAExecutor {
         }
 
         Thread.sleep(forTimeInterval: self.postPreflightDelaySeconds)
+    }
+
+    private static func isMenuContextElement(_ element: Element) -> Bool {
+        var current: Element? = element
+        var depth = 0
+
+        while let candidate = current, depth < 256 {
+            if self.isMenuRole(candidate.role()) {
+                return true
+            }
+
+            current = candidate.parent()
+            depth += 1
+        }
+
+        return false
+    }
+
+    private static func isMenuRole(_ role: String?) -> Bool {
+        guard let role else {
+            return false
+        }
+
+        return role == AXRoleNames.kAXMenuRole || role == AXRoleNames.kAXMenuItemRole
     }
 
     static func ensureApplicationFrontmost(pid: pid_t) -> Bool {
@@ -802,7 +837,16 @@ enum OXAExecutor {
             app.unhide()
         }
 
-        return self.activateViaAppleScript(app)
+        if self.activateViaAppleScript(app) {
+            return true
+        }
+
+        if self.activateViaRunningApplication(app) {
+            self.lastActivationFailureDescription = nil
+            return true
+        }
+
+        return false
     }
 
     private static func liveFrontmostPid() -> pid_t? {
@@ -854,9 +898,17 @@ enum OXAExecutor {
 
         do {
             try process.run()
-            process.waitUntilExit()
         } catch {
             self.lastActivationFailureDescription = "AppleScript activation failed to launch: \(error.localizedDescription)"
+            return false
+        }
+
+        guard self.waitForProcessExit(
+            process,
+            timeout: self.appleScriptActivationTimeoutSeconds,
+            pollInterval: self.processPollIntervalSeconds)
+        else {
+            self.lastActivationFailureDescription = "AppleScript activation timed out."
             return false
         }
 
@@ -874,6 +926,45 @@ enum OXAExecutor {
 
         self.lastActivationFailureDescription = nil
         return true
+    }
+
+    private static func activateViaRunningApplication(_ app: NSRunningApplication) -> Bool {
+        let options: NSApplication.ActivationOptions = [.activateAllWindows, .activateIgnoringOtherApps]
+        guard app.activate(options: options) else {
+            let previous = self.lastActivationFailureDescription
+            if let previous, !previous.isEmpty {
+                self.lastActivationFailureDescription =
+                    "\(previous) Fallback activation via NSRunningApplication.activate failed."
+            } else {
+                self.lastActivationFailureDescription =
+                    "Fallback activation via NSRunningApplication.activate failed."
+            }
+            return false
+        }
+        return true
+    }
+
+    private static func waitForProcessExit(
+        _ process: Process,
+        timeout: TimeInterval,
+        pollInterval: TimeInterval) -> Bool
+    {
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while process.isRunning, Date() < deadline {
+            Thread.sleep(forTimeInterval: pollInterval)
+        }
+
+        guard process.isRunning else {
+            return true
+        }
+
+        process.terminate()
+        for _ in 0..<10 where process.isRunning {
+            Thread.sleep(forTimeInterval: pollInterval)
+        }
+
+        return !process.isRunning
     }
 
     private static func owningPID(for element: Element) -> pid_t? {
@@ -934,8 +1025,63 @@ enum OXAExecutor {
         return CGPoint(x: frame.midX, y: frame.midY)
     }
 
+    private static func clickPoint(for element: Element) -> CGPoint? {
+        guard let elementFrame = element.frame() else {
+            return nil
+        }
+
+        if element.role() == AXRoleNames.kAXLinkRole,
+           let descendantPoint = self.deepestDescendantPointInBounds(
+               root: element,
+               bounds: elementFrame)
+        {
+            return descendantPoint
+        }
+
+        return CGPoint(x: elementFrame.midX, y: elementFrame.midY)
+    }
+
+    private static func deepestDescendantPointInBounds(root: Element, bounds: CGRect) -> CGPoint? {
+        var bestPoint: CGPoint?
+        var bestDepth = -1
+        var visited: Set<Element> = [root]
+
+        func visit(_ element: Element, depth: Int) {
+            guard depth < 256 else {
+                return
+            }
+
+            guard let children = element.children(strict: false, includeApplicationExtras: false), !children.isEmpty else {
+                return
+            }
+
+            for child in children {
+                if visited.contains(child) {
+                    continue
+                }
+                visited.insert(child)
+
+                if let frame = child.frame(),
+                   frame.width > 0,
+                   frame.height > 0
+                {
+                    let center = CGPoint(x: frame.midX, y: frame.midY)
+                    if bounds.contains(center), depth > bestDepth {
+                        bestDepth = depth
+                        bestPoint = center
+                    }
+                }
+
+                visit(child, depth: depth + 1)
+            }
+        }
+
+        visit(root, depth: 1)
+        return bestPoint
+    }
+
     private static func clickElementCenter(_ element: Element, button: MouseButton = .left) throws {
-        guard let center = self.centerPoint(for: element) else {
+        guard let center = self.clickPoint(for: element) else {
             throw OXAActionError.runtime("Unable to resolve element frame for click.")
         }
         try self.movePointerToElementCenter(center)
