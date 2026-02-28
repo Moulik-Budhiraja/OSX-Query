@@ -219,7 +219,7 @@ struct SelectorCacheDaemonClient {
         }
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+        process.executableURL = try self.currentExecutableURL()
         process.arguments = [
             "--selector-cache-daemon",
             "--selector-cache-daemon-socket",
@@ -242,6 +242,45 @@ struct SelectorCacheDaemonClient {
         }
 
         throw SelectorCacheDaemonError.daemonUnavailable("Timed out waiting for daemon socket at \(socketPath).")
+    }
+
+    private func currentExecutableURL() throws -> URL {
+        if let argv0 = CommandLine.arguments.first {
+            if argv0.contains("/") {
+                if FileManager.default.isExecutableFile(atPath: argv0) {
+                    return URL(fileURLWithPath: argv0)
+                }
+            } else if let resolved = self.findExecutableInPATH(named: argv0) {
+                return URL(fileURLWithPath: resolved)
+            }
+        }
+
+        var size: UInt32 = 0
+        _ = _NSGetExecutablePath(nil, &size)
+        guard size > 0 else {
+            throw SelectorCacheDaemonError.daemonStartFailed("Unable to resolve current executable path.")
+        }
+
+        var buffer = [CChar](repeating: 0, count: Int(size))
+        guard _NSGetExecutablePath(&buffer, &size) == 0 else {
+            throw SelectorCacheDaemonError.daemonStartFailed("Unable to resolve current executable path.")
+        }
+
+        return URL(fileURLWithPath: String(cString: buffer))
+    }
+
+    private func findExecutableInPATH(named executableName: String) -> String? {
+        guard let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty else {
+            return nil
+        }
+
+        for directory in path.split(separator: ":") {
+            let candidate = "\(directory)/\(executableName)"
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        return nil
     }
 
 }

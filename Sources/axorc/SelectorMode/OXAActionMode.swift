@@ -929,16 +929,40 @@ enum OXAExecutor {
 
     private static func scroll(direction: OXAScrollDirection, at point: CGPoint) throws {
         let amount: Double = 80
+        let deltas = self.scrollDeltas(
+            for: direction,
+            amount: amount,
+            naturalScrollEnabled: self.isNaturalScrollEnabled())
+        try InputDriver.scroll(deltaX: deltas.deltaX, deltaY: deltas.deltaY, at: point)
+    }
+
+    static func scrollDeltas(
+        for direction: OXAScrollDirection,
+        amount: Double,
+        naturalScrollEnabled: Bool) -> (deltaX: Double, deltaY: Double)
+    {
+        let verticalUnit = naturalScrollEnabled ? -amount : amount
+        let horizontalUnit = naturalScrollEnabled ? -amount : amount
+
         switch direction {
         case .up:
-            try InputDriver.scroll(deltaY: amount, at: point)
+            return (0, verticalUnit)
         case .down:
-            try InputDriver.scroll(deltaY: -amount, at: point)
+            return (0, -verticalUnit)
         case .left:
-            try InputDriver.scroll(deltaX: amount, deltaY: 0, at: point)
+            return (horizontalUnit, 0)
         case .right:
-            try InputDriver.scroll(deltaX: -amount, deltaY: 0, at: point)
+            return (-horizontalUnit, 0)
         }
+    }
+
+    private static func isNaturalScrollEnabled() -> Bool {
+        let domain = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)
+        if let value = domain?["com.apple.swipescrolldirection"] as? Bool {
+            return value
+        }
+
+        return true
     }
 
     private static func openApplication(_ applicationIdentifier: String) throws {
