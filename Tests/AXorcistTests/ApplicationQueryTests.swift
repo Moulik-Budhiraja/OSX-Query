@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Testing
 @testable import AXorcist
 
@@ -73,6 +74,46 @@ struct ApplicationQueryTests {
         ])
         #expect(result.exitCode == 0)
         #expect(result.output?.contains("AXWindow") == true, "Output should include AXWindow entries")
+    }
+
+    @Test(
+        "Selector query does not activate target app",
+        .tags(.automation),
+        .enabled(if: AXTestEnvironment.runAutomationScenarios))
+    @MainActor
+    func selectorQueryDoesNotActivateTargetApp() async throws {
+        await closeTextEdit()
+        try await Task.sleep(for: .milliseconds(500))
+
+        let (textEditPid, _) = try await setupTextEditAndGetInfo()
+        guard let textEditApp = NSRunningApplication(processIdentifier: textEditPid) else {
+            Issue.record("Could not resolve running TextEdit app for PID \(textEditPid).")
+            return
+        }
+        defer {
+            textEditApp.terminate()
+        }
+
+        if let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first {
+            _ = finder.activate(options: [.activateAllWindows])
+            try await Task.sleep(for: .milliseconds(500))
+        }
+
+        let preQueryFrontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        #expect(preQueryFrontmostPid != textEditPid, "Expected another app to be frontmost before query.")
+
+        let result = try runAXORCCommand(arguments: [
+            "--app", "com.apple.TextEdit",
+            "--selector", "AXTextArea",
+            "--limit", "1",
+            "--no-color",
+        ])
+
+        #expect(result.exitCode == 0, "Query command should succeed.")
+        try await Task.sleep(for: .milliseconds(500))
+
+        let postQueryFrontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        #expect(postQueryFrontmostPid == preQueryFrontmostPid, "Query should not steal focus from the current frontmost app.")
     }
 
     @Test("Query non-existent application", .tags(.safe))

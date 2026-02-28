@@ -164,4 +164,10 @@ public enum InputDriver {
     public static func hotkey(keys: [String], holdDuration: TimeInterval = 0.1) throws {
         try Element.performHotkey(keys: keys, holdDuration: holdDuration)
     }
+
+    /// Perform a hotkey chord targeted to a specific process id.
+    @MainActor
+    public static func hotkey(keys: [String], targetPid: pid_t, holdDuration: TimeInterval = 0.1) throws {
+        try Element.performHotkey(keys: keys, targetPid: targetPid, holdDuration: holdDuration)
+    }
 }

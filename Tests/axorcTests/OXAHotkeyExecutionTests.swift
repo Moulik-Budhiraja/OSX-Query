@@ -1,0 +1,38 @@
+import Foundation
+import Testing
+@testable import axorc
+
+@Suite("OXA Hotkey Execution")
+@MainActor
+struct OXAHotkeyExecutionTests {
+    @Test("Execute hotkey dispatches chord to target pid")
+    func executeHotkeyDispatchesChordToTargetPid() throws {
+        var dispatchedKeys: [String] = []
+        var dispatchedPid: pid_t = 0
+
+        try OXAExecutor.executeHotkey(
+            OXAHotkeyChord(modifiers: ["cmd", "shift"], baseKey: "a"),
+            targetPid: 77,
+            dispatch: { keys, pid in
+                dispatchedKeys = keys
+                dispatchedPid = pid
+            })
+
+        #expect(dispatchedKeys == ["cmd", "shift", "a"])
+        #expect(dispatchedPid == 77)
+    }
+
+    @Test("Execute hotkey normalizes base key aliases")
+    func executeHotkeyNormalizesAliases() throws {
+        var dispatchedKeys: [String] = []
+
+        try OXAExecutor.executeHotkey(
+            OXAHotkeyChord(modifiers: [], baseKey: "arrow_down"),
+            targetPid: 42,
+            dispatch: { keys, _ in
+                dispatchedKeys = keys
+            })
+
+        #expect(dispatchedKeys == ["down"])
+    }
+}

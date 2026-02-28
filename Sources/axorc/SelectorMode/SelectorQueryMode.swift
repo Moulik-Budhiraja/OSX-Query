@@ -21,6 +21,7 @@ enum SelectorQueryCLIError: LocalizedError, Equatable {
     case interactionTargetOutOfBounds(index: Int, matchedCount: Int)
     case interactionFailed(action: String, index: Int)
     case cachedSnapshotUnavailable(String)
+    case referenceCollision(String)
 
     var errorDescription: String? {
         switch self {
@@ -56,6 +57,8 @@ enum SelectorQueryCLIError: LocalizedError, Equatable {
             "Interaction '\(action)' failed for result index \(index)."
         case let .cachedSnapshotUnavailable(message):
             message
+        case let .referenceCollision(reference):
+            "Selector query produced a duplicate element reference '\(reference)'. Re-run query."
         }
     }
 }
@@ -332,6 +335,7 @@ struct SelectorMatchSummary: Equatable {
     let identifier: String?
     let descriptionText: String?
     let path: String?
+    let reference: String?
 
     var resultDisplayName: String? {
         if self.role == AXRoleNames.kAXStaticTextRole, let value = self.value {
@@ -366,7 +370,8 @@ struct SelectorMatchSummary: Equatable {
         value: String?,
         identifier: String?,
         descriptionText: String?,
-        path: String?)
+        path: String?,
+        reference: String? = nil)
     {
         self.role = role
         self.computedName = computedName
@@ -379,6 +384,7 @@ struct SelectorMatchSummary: Equatable {
         self.identifier = identifier
         self.descriptionText = descriptionText
         self.path = path
+        self.reference = reference
     }
 
     @MainActor
@@ -401,6 +407,7 @@ struct SelectorMatchSummary: Equatable {
         self.identifier = SelectorMatchSummary.normalize(element.identifier())
         self.descriptionText = SelectorMatchSummary.normalize(element.descriptionText())
         self.path = includePath ? SelectorMatchSummary.normalize(element.generatePathString()) : nil
+        self.reference = nil
     }
 
     static func normalize(_ value: String?) -> String? {
@@ -561,7 +568,7 @@ private enum LiveSelectorQueryExecutor {
 
         let syntaxTree = try OXQParser().parse(request.selector)
         let prefetchedAttributeNames = self.prefetchAttributeNames(for: syntaxTree)
-        let rootPID = root.pid() ?? 0
+        let rootPID = self.axPid(for: root) ?? 0
         let prefetchedSnapshot = try self.resolvePrefetchedSnapshot(
             root: root,
             rootPID: rootPID,
@@ -610,8 +617,15 @@ private enum LiveSelectorQueryExecutor {
             matchedElements: matchedElements,
             memoizationContext: memoizationContext)
 
-        let shownElements = matchedElements.prefix(request.limit)
-        let shownSummaries = shownElements.map { element in
+        let shownElements = Array(matchedElements.prefix(request.limit))
+        var shownElementsByReference: [String: Element] = [:]
+        let shownSummaries = try shownElements.map { element in
+            let reference = self.referenceForElement(element)
+            if let existing = shownElementsByReference[reference], existing != element {
+                throw SelectorQueryCLIError.referenceCollision(reference)
+            }
+            shownElementsByReference[reference] = element
+
             let isEnabled = self.parseBool(memoizationContext.attributeValue(
                 of: element,
                 attributeName: AXAttributeNames.kAXEnabledAttribute))
@@ -640,8 +654,12 @@ private enum LiveSelectorQueryExecutor {
                     memoizationContext.attributeValue(of: element, attributeName: AXAttributeNames.kAXDescriptionAttribute)),
                 path: request.showPath
                     ? SelectorMatchSummary.normalize(self.cachedPathString(for: element, snapshot: prefetchedSnapshot))
-                    : nil)
+                    : nil,
+                reference: reference)
         }
+        SelectorActionRefStore.replace(
+            with: shownElementsByReference,
+            appPID: rootPID > 0 ? rootPID : nil)
 
         return SelectorQueryResult(
             traversedCount: evaluation.traversedNodeCount,
@@ -722,6 +740,19 @@ private enum LiveSelectorQueryExecutor {
         }
 
         return getApplicationElement(for: app.processIdentifier)
+    }
+
+    private static func axPid(for element: Element) -> pid_t? {
+        if let pid = element.pid(), pid > 0 {
+            return pid
+        }
+
+        var pid: pid_t = 0
+        let status = AXUIElementGetPid(element.underlyingElement, &pid)
+        guard status == .success, pid > 0 else {
+            return nil
+        }
+        return pid
     }
 
     private static func findRunningApplication(matching identifier: String) -> NSRunningApplication? {
@@ -1030,6 +1061,16 @@ private enum LiveSelectorQueryExecutor {
         }
     }
 
+    static func invalidateCacheSessionState() {
+        self.prefetchCache = nil
+    }
+
+    private static func referenceForElement(_ element: Element) -> String {
+        let hashValue = UInt64(CFHash(element.underlyingElement))
+        let truncated = hashValue & 0x0000_000F_FFFF_FFFF
+        return String(format: "%09llx", truncated)
+    }
+
     @MainActor
     private static func performInteractionIfRequested(
         _ interaction: SelectorInteractionRequest?,
@@ -1223,6 +1264,12 @@ private enum LiveSelectorQueryExecutor {
             return false
         }
     }
+}
+
+@MainActor
+func selectorQueryInvalidateCaches() {
+    LiveSelectorQueryExecutor.invalidateCacheSessionState()
+    SelectorActionRefStore.clear()
 }
 
 enum OutputCapabilities {

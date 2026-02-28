@@ -100,33 +100,58 @@ enum SelectorCacheDaemonServer {
         }
 
         let decoder = JSONDecoder()
-        let requestPayload: SelectorCacheDaemonPayload
+        let requestEnvelope: SelectorCacheDaemonRequestEnvelope
         do {
-            requestPayload = try decoder.decode(SelectorCacheDaemonPayload.self, from: requestData)
+            requestEnvelope = try decoder.decode(SelectorCacheDaemonRequestEnvelope.self, from: requestData)
         } catch {
             throw SelectorCacheDaemonError.invalidRequest(error.localizedDescription)
         }
 
         let response: SelectorCacheDaemonResponse
-        do {
-            let report = try runner.execute(requestPayload.toSelectorQueryRequest())
-            let output = SelectorQueryOutputFormatter.format(report: report)
-            response = SelectorCacheDaemonResponse(success: true, output: output, error: nil)
-        } catch let parseError as OXQParseError {
-            response = SelectorCacheDaemonResponse(
-                success: false,
-                output: nil,
-                error: "Invalid selector query: \(parseError.description)")
-        } catch let selectorError as SelectorQueryCLIError {
-            response = SelectorCacheDaemonResponse(
-                success: false,
-                output: nil,
-                error: selectorError.localizedDescription)
-        } catch {
-            response = SelectorCacheDaemonResponse(
-                success: false,
-                output: nil,
-                error: error.localizedDescription)
+        switch requestEnvelope.mode {
+        case .query:
+            guard let queryPayload = requestEnvelope.query else {
+                throw SelectorCacheDaemonError.invalidRequest("Missing query payload.")
+            }
+            do {
+                let report = try runner.execute(queryPayload.toSelectorQueryRequest())
+                let output = SelectorQueryOutputFormatter.format(report: report)
+                response = SelectorCacheDaemonResponse(success: true, output: output, error: nil)
+            } catch let parseError as OXQParseError {
+                response = SelectorCacheDaemonResponse(
+                    success: false,
+                    output: nil,
+                    error: "Invalid selector query: \(parseError.description)")
+            } catch let selectorError as SelectorQueryCLIError {
+                response = SelectorCacheDaemonResponse(
+                    success: false,
+                    output: nil,
+                    error: selectorError.localizedDescription)
+            } catch {
+                response = SelectorCacheDaemonResponse(
+                    success: false,
+                    output: nil,
+                    error: error.localizedDescription)
+            }
+
+        case .actions:
+            guard let actionProgram = requestEnvelope.actions else {
+                throw SelectorCacheDaemonError.invalidRequest("Missing action payload.")
+            }
+            do {
+                let output = try OXAExecutor.execute(programSource: actionProgram)
+                response = SelectorCacheDaemonResponse(success: true, output: output, error: nil)
+            } catch let actionError as OXAActionError {
+                response = SelectorCacheDaemonResponse(
+                    success: false,
+                    output: nil,
+                    error: actionError.localizedDescription)
+            } catch {
+                response = SelectorCacheDaemonResponse(
+                    success: false,
+                    output: nil,
+                    error: error.localizedDescription)
+            }
         }
 
         let encoded = try JSONEncoder().encode(response)
@@ -144,7 +169,31 @@ struct SelectorCacheDaemonClient {
         let socketPath = Self.defaultSocketPath()
         try self.ensureDaemonRunning(socketPath: socketPath)
 
-        let payload = SelectorCacheDaemonPayload(request: request)
+        let payload = SelectorCacheDaemonRequestEnvelope(queryRequest: request)
+        let data = try JSONEncoder().encode(payload)
+        let responseData = try SelectorCacheSocketTransport.requestResponse(
+            socketPath: socketPath,
+            requestData: data)
+
+        let response: SelectorCacheDaemonResponse
+        do {
+            response = try JSONDecoder().decode(SelectorCacheDaemonResponse.self, from: responseData)
+        } catch {
+            throw SelectorCacheDaemonError.invalidResponse(error.localizedDescription)
+        }
+
+        if response.success, let output = response.output {
+            return output
+        }
+
+        throw SelectorCacheDaemonError.remoteError(response.error ?? "Unknown selector cache daemon error.")
+    }
+
+    func execute(actionsProgram: String) throws -> String {
+        let socketPath = Self.defaultSocketPath()
+        try self.ensureDaemonRunning(socketPath: socketPath)
+
+        let payload = SelectorCacheDaemonRequestEnvelope(actionProgram: actionsProgram)
         let data = try JSONEncoder().encode(payload)
         let responseData = try SelectorCacheSocketTransport.requestResponse(
             socketPath: socketPath,
@@ -194,6 +243,7 @@ struct SelectorCacheDaemonClient {
 
         throw SelectorCacheDaemonError.daemonUnavailable("Timed out waiting for daemon socket at \(socketPath).")
     }
+
 }
 
 private struct SelectorCacheDaemonPayload: Codable {
@@ -231,6 +281,29 @@ private struct SelectorCacheDaemonPayload: Codable {
             cacheSessionEnabled: true,
             useCachedSnapshot: self.useCachedSnapshot,
             interaction: self.interaction?.toInteractionRequest())
+    }
+}
+
+private enum SelectorCacheDaemonRequestMode: String, Codable {
+    case query
+    case actions
+}
+
+private struct SelectorCacheDaemonRequestEnvelope: Codable {
+    let mode: SelectorCacheDaemonRequestMode
+    let query: SelectorCacheDaemonPayload?
+    let actions: String?
+
+    init(queryRequest: SelectorQueryRequest) {
+        self.mode = .query
+        self.query = SelectorCacheDaemonPayload(request: queryRequest)
+        self.actions = nil
+    }
+
+    init(actionProgram: String) {
+        self.mode = .actions
+        self.query = nil
+        self.actions = actionProgram
     }
 }
 

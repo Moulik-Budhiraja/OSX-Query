@@ -212,6 +212,12 @@ extension Element {
 
     /// Type a special key
     @MainActor public static func typeKey(_ key: SpecialKey, modifiers: CGEventFlags = []) throws {
+        try self.typeKey(key, modifiers: modifiers, targetPid: nil)
+    }
+
+    /// Type a special key targeted to a specific process id.
+    @MainActor
+    public static func typeKey(_ key: SpecialKey, modifiers: CGEventFlags = [], targetPid: pid_t?) throws {
         guard let keyCode = key.keyCode else {
             throw UIAutomationError.unsupportedKey(key.rawValue)
         }
@@ -229,17 +235,43 @@ extension Element {
         keyUp.flags = modifiers
 
         // Post events
-        keyDown.post(tap: .cghidEventTap)
+        if let targetPid {
+            keyDown.postToPid(targetPid)
+        } else {
+            keyDown.post(tap: .cghidEventTap)
+        }
         Thread.sleep(forTimeInterval: 0.001)
-        keyUp.post(tap: .cghidEventTap)
+        if let targetPid {
+            keyUp.postToPid(targetPid)
+        } else {
+            keyUp.post(tap: .cghidEventTap)
+        }
     }
 
     /// Perform a hotkey combination
     @MainActor public static func performHotkey(keys: [String], holdDuration: TimeInterval = 0.1) throws {
+        let (key, modifiers) = try self.parseHotkey(keys)
+        try self.typeKey(key, modifiers: modifiers, targetPid: nil)
+
+        // Hold for specified duration
+        Thread.sleep(forTimeInterval: holdDuration)
+    }
+
+    /// Perform a hotkey combination targeted to a specific process id.
+    @MainActor
+    public static func performHotkey(keys: [String], targetPid: pid_t, holdDuration: TimeInterval = 0.1) throws {
+        let (key, modifiers) = try self.parseHotkey(keys)
+        try self.typeKey(key, modifiers: modifiers, targetPid: targetPid)
+
+        // Hold for specified duration
+        Thread.sleep(forTimeInterval: holdDuration)
+    }
+
+    @MainActor
+    private static func parseHotkey(_ keys: [String]) throws -> (key: SpecialKey, modifiers: CGEventFlags) {
         var modifiers: CGEventFlags = []
         var mainKey: SpecialKey?
 
-        // Parse keys
         for key in keys {
             switch key.lowercased() {
             case "cmd", "command":
@@ -253,27 +285,19 @@ extension Element {
             case "fn", "function":
                 modifiers.insert(.maskSecondaryFn)
             default:
-                // Try to parse as special key
                 if let special = SpecialKey(rawValue: key.lowercased()) {
                     mainKey = special
                 } else if key.count == 1 {
-                    // Single character key
                     let char = key.lowercased().first!
                     mainKey = SpecialKey(character: char)
                 }
             }
         }
 
-        // Must have a main key
         guard let key = mainKey else {
             throw UIAutomationError.invalidHotkey(keys.joined(separator: "+"))
         }
-
-        // Type the key with modifiers
-        try self.typeKey(key, modifiers: modifiers)
-
-        // Hold for specified duration
-        Thread.sleep(forTimeInterval: holdDuration)
+        return (key, modifiers)
     }
 }
 

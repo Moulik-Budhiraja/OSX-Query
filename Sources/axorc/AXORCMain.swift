@@ -28,6 +28,9 @@ struct AXORCCommand: ParsableCommand {
                 CommandUsageExample(
                     command: "axorc --enable-ax com.apple.TextEdit",
                     description: "Temporarily focus an app and apply AX exposure attributes."),
+                CommandUsageExample(
+                    command: "axorc --actions 'send click to 28e6a93cf;'",
+                    description: "Execute OXA actions against refs from the cache daemon (query+ then action*)."),
             ])
     }
 
@@ -43,6 +46,9 @@ struct AXORCCommand: ParsableCommand {
 
     @Option(name: .long, help: "OXQ selector query for selector mode.")
     var selector: String?
+
+    @Option(name: .long, help: "Run OXA action program against selector cache daemon refs.")
+    var actions: String?
 
     @Flag(
         names: [.customShort("i", allowingJoined: false), .customLong("interactive")],
@@ -226,6 +232,11 @@ struct AXORCCommand: ParsableCommand {
             return
         }
 
+        if let actionProgram = try self.buildActionProgramIfNeeded() {
+            try self.runActionMode(program: actionProgram)
+            return
+        }
+
         if let exposureRequest = try self.buildAXExposureRequestIfNeeded() {
             try self.runAXExposureMode(request: exposureRequest)
             return
@@ -329,6 +340,37 @@ struct AXORCCommand: ParsableCommand {
             axClearLogs()
         } catch let exposureError as AXExposureCLIError {
             throw ValidationError(exposureError.localizedDescription)
+        }
+    }
+
+    private mutating func buildActionProgramIfNeeded() throws -> String? {
+        guard let actionProgram = self.actions?.trimmingCharacters(in: .whitespacesAndNewlines), !actionProgram.isEmpty else {
+            return nil
+        }
+
+        if self.enableAppAx != nil {
+            throw ValidationError("Action mode (--actions) cannot be combined with --enable-ax.")
+        }
+
+        if self.hasAnySelectorInput() {
+            throw ValidationError("Action mode (--actions) cannot be combined with selector flags. Use query+ then action* as separate calls.")
+        }
+
+        if self.hasAnyStructuredInput() {
+            throw ValidationError("Action mode (--actions) cannot be combined with JSON input flags or payloads.")
+        }
+
+        return actionProgram
+    }
+
+    private mutating func runActionMode(program: String) throws {
+        do {
+            let output = try SelectorCacheDaemonClient().execute(actionsProgram: program)
+            print(output)
+            fflush(stdout)
+            axClearLogs()
+        } catch let cacheError as SelectorCacheDaemonError {
+            throw ValidationError(cacheError.localizedDescription)
         }
     }
 
@@ -561,6 +603,10 @@ extension AXORCCommand {
 
         if let selectorValue = parsedValues.options["selector"]?.last {
             self.selector = selectorValue
+        }
+
+        if let actionsValue = parsedValues.options["actions"]?.last {
+            self.actions = actionsValue
         }
 
         if let interactionValue = parsedValues.options["interaction"]?.last {

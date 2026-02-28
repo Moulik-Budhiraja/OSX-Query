@@ -42,7 +42,8 @@ struct SelectorQueryOutputFormatterTests {
                     value: nil,
                     identifier: "save-button",
                     descriptionText: "Save current document",
-                    path: "AXApplication -> AXWindow -> AXButton"),
+                    path: "AXApplication -> AXWindow -> AXButton",
+                    reference: "28e6a93cf"),
                 SelectorMatchSummary(
                     role: "AXTextField",
                     computedName: "Query",
@@ -69,6 +70,7 @@ struct SelectorQueryOutputFormatterTests {
         #expect(lines[0].contains("shown=2"))
 
         #expect(lines[1].contains("[1] AXButton"))
+        #expect(lines[1].contains("ref=28e6a93cf"))
         #expect(lines[1].contains("name=\"Save\""))
         #expect(!lines[1].contains("name_source=\""))
         #expect(!lines[1].contains("title=\"Save\""))

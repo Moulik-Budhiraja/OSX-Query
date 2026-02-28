@@ -29,6 +29,10 @@ enum SelectorQueryOutputFormatter {
             let roleLabel = colorizer.colorizeRole(element.role)
             var detailParts: [String] = []
 
+            if let reference = self.detailValue(element.reference) {
+                detailParts.append("ref=\(self.sanitize(reference))")
+            }
+
             if let computedName = self.detailValue(element.resultDisplayName) {
                 detailParts.append("name=\"\(self.sanitize(computedName))\"")
                 if report.request.showNameSource, let computedNameSource = self.detailValue(element.resultDisplayNameSource) {
