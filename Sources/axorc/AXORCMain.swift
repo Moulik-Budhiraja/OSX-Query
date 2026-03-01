@@ -55,11 +55,6 @@ struct AXORCCommand: ParsableCommand {
         help: "Open interactive selector mode (full-screen query and result navigation).")
     var interactive: Bool = false
 
-    @Flag(
-        names: [.customShort("r", allowingJoined: false), .customLong("refocus-terminal")],
-        help: "With -i, refocus the terminal app after click/focus/set-value-submit interactions.")
-    var refocusTerminal: Bool = false
-
     @Option(name: .customLong("max-depth"), help: "Selector mode max traversal depth (default unlimited).")
     var selectorMaxDepth: Int?
 
@@ -84,20 +79,6 @@ struct AXORCCommand: ParsableCommand {
         name: .customLong("use-cached"),
         help: "Use the warm cached tree from the last --cache-session query (no refresh).")
     var useCached: Bool = false
-
-    @Option(name: .customLong("result-index"), help: "1-based matched selector result index to target for interaction.")
-    var selectorResultIndex: Int?
-
-    @Option(name: .long, help: "Interaction for targeted selector result (click, press, focus, set-value, send-keystrokes-submit).")
-    var interaction: String?
-
-    @Option(name: .customLong("interaction-value"), help: "Value used for --interaction set-value.")
-    var interactionValue: String?
-
-    @Flag(
-        name: .customLong("submit-after-set-value"),
-        help: "With --interaction set-value, click the target first, set value, then press Return.")
-    var submitAfterSetValue: Bool = false
 
     @Option(
         name: .customLong("enable-ax"),
@@ -315,9 +296,7 @@ struct AXORCCommand: ParsableCommand {
         let hasApp = !(self.app?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         let hasSelector = !(self.selector?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         return hasApp || hasSelector || self.selectorMaxDepth != nil || self.limit != nil || self.noColor ||
-            self.showPath || self.showNameSource || self.selectorResultIndex != nil || self.interaction != nil ||
-            self.interactionValue != nil || self.submitAfterSetValue || self.interactive || self.refocusTerminal ||
-            self.cacheSession || self.useCached
+            self.showPath || self.showNameSource || self.interactive || self.cacheSession || self.useCached
     }
 
     private mutating func buildAXExposureRequestIfNeeded() throws -> AXExposureRequest? {
@@ -382,7 +361,6 @@ struct AXORCCommand: ParsableCommand {
                 selector: self.selector,
                 maxDepth: self.selectorMaxDepth,
                 interactive: interactiveRequested,
-                refocusTerminalAfterInteractions: self.refocusTerminal,
                 hasStructuredInput: self.hasAnyStructuredInput())
         } catch let interactiveError as InteractiveSelectorCLIError {
             throw ValidationError(interactiveError.localizedDescription)
@@ -421,10 +399,6 @@ struct AXORCCommand: ParsableCommand {
                 showNameSource: self.showNameSource,
                 cacheSession: self.cacheSession,
                 useCached: self.useCached,
-                interaction: self.interaction,
-                interactionValue: self.interactionValue,
-                submitAfterSetValue: self.submitAfterSetValue,
-                resultIndex: self.selectorResultIndex,
                 hasStructuredInput: self.hasAnyStructuredInput(),
                 stdoutSupportsANSI: OutputCapabilities.stdoutSupportsANSI)
         } catch let selectorError as SelectorQueryCLIError {
@@ -565,8 +539,6 @@ extension AXORCCommand {
         self.cacheSession = parsedValues.flags.contains("cacheSession")
         self.useCached = parsedValues.flags.contains("useCached")
         self.interactive = parsedValues.flags.contains("interactive")
-        self.refocusTerminal = parsedValues.flags.contains("refocusTerminal")
-        self.submitAfterSetValue = parsedValues.flags.contains("submitAfterSetValue")
         self.selectorCacheDaemon = parsedValues.flags.contains("selectorCacheDaemon")
 
         if let timeoutString = parsedValues.options["timeout"]?.last {
@@ -590,13 +562,6 @@ extension AXORCCommand {
             self.limit = limitValue
         }
 
-        if let resultIndexString = parsedValues.options["selectorResultIndex"]?.last {
-            guard let resultIndexValue = Int(resultIndexString) else {
-                throw ValidationError("Invalid value for --result-index: \(resultIndexString)")
-            }
-            self.selectorResultIndex = resultIndexValue
-        }
-
         if let appValue = parsedValues.options["app"]?.last {
             self.app = appValue
         }
@@ -607,14 +572,6 @@ extension AXORCCommand {
 
         if let actionsValue = parsedValues.options["actions"]?.last {
             self.actions = actionsValue
-        }
-
-        if let interactionValue = parsedValues.options["interaction"]?.last {
-            self.interaction = interactionValue
-        }
-
-        if let selectorInteractionValue = parsedValues.options["interactionValue"]?.last {
-            self.interactionValue = selectorInteractionValue
         }
 
         if let enableAppAxValue = parsedValues.options["enableAppAx"]?.last {

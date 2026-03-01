@@ -1,7 +1,6 @@
 import Darwin
 import Foundation
 import AXorcist
-import AppKit
 
 enum InteractiveSelectorCLIError: LocalizedError, Equatable {
     case missingApplication
@@ -27,7 +26,6 @@ struct InteractiveSelectorRequest: Equatable {
     let appIdentifier: String
     let initialSelector: String?
     let maxDepth: Int
-    let refocusTerminalAfterInteractions: Bool
 }
 
 enum InteractiveSelectorRequestBuilder {
@@ -38,7 +36,6 @@ enum InteractiveSelectorRequestBuilder {
         selector: String?,
         maxDepth: Int?,
         interactive: Bool,
-        refocusTerminalAfterInteractions: Bool = false,
         hasStructuredInput: Bool) throws -> InteractiveSelectorRequest?
     {
         guard interactive else { return nil }
@@ -62,8 +59,7 @@ enum InteractiveSelectorRequestBuilder {
         return InteractiveSelectorRequest(
             appIdentifier: trimmedApp,
             initialSelector: initialSelector,
-            maxDepth: maxDepth ?? unlimitedMaxDepth,
-            refocusTerminalAfterInteractions: refocusTerminalAfterInteractions)
+            maxDepth: maxDepth ?? unlimitedMaxDepth)
     }
 }
 
@@ -85,32 +81,12 @@ private final class InteractiveSelectorSession {
         case query
         case results
         case search
-        case interactionMenu
-        case interactionValueInput(InteractionKind)
-    }
-
-    private enum InteractionKind {
-        case setValue
-        case setValueSubmit
-        case sendKeystrokesSubmit
-
-        var label: String {
-            switch self {
-            case .setValue:
-                return "set-value"
-            case .setValueSubmit:
-                return "set-value-submit"
-            case .sendKeystrokesSubmit:
-                return "send-keystrokes-submit"
-            }
-        }
     }
 
     private let request: InteractiveSelectorRequest
     private let runner = SelectorQueryRunner()
     private let colorEnabled: Bool
     private let roleColorizer: InteractiveRoleColorizer
-    private let terminalAppPID: pid_t?
     private var rawMode: RawTerminalMode
 
     private var mode: Mode = .query
@@ -120,8 +96,6 @@ private final class InteractiveSelectorSession {
     private var queryCursorIndex: Int
     private var searchText = ""
     private var searchCursorIndex = 0
-    private var pendingValueText = ""
-    private var pendingValueCursorIndex = 0
 
     private var lastReport: SelectorQueryExecutionReport?
     private var results: [SelectorMatchSummary] = []
@@ -138,7 +112,6 @@ private final class InteractiveSelectorSession {
         self.queryCursorIndex = self.query.count
         self.colorEnabled = OutputCapabilities.stdoutSupportsANSI
         self.roleColorizer = InteractiveRoleColorizer(enabled: OutputCapabilities.stdoutSupportsANSI)
-        self.terminalAppPID = request.refocusTerminalAfterInteractions ? NSWorkspace.shared.frontmostApplication?.processIdentifier : nil
         self.rawMode = try RawTerminalMode(fd: STDIN_FILENO)
     }
 
@@ -200,72 +173,6 @@ private final class InteractiveSelectorSession {
         }
     }
 
-    private func executeInteraction(_ action: SelectorInteractionAction) {
-        guard !self.results.isEmpty else {
-            self.statusMessage = "No result selected."
-            self.mode = .results
-            return
-        }
-
-        let trimmedQuery = self.query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedQuery.isEmpty else {
-            self.statusMessage = "Query cannot be empty."
-            self.mode = .query
-            return
-        }
-
-        let request = SelectorQueryRequest(
-            appIdentifier: self.request.appIdentifier,
-            selector: trimmedQuery,
-            maxDepth: self.request.maxDepth,
-            limit: Int.max,
-            colorEnabled: false,
-            showPath: false,
-            showNameSource: false,
-            interaction: SelectorInteractionRequest(resultIndex: self.selectedIndex + 1, action: action))
-
-        let shouldRefocusTerminal = self.shouldRefocusTerminal(after: action)
-        defer {
-            if shouldRefocusTerminal {
-                self.refocusTerminalApp()
-            }
-        }
-
-        do {
-            let report = try self.runner.execute(request)
-            self.lastReport = report
-            self.results = report.results
-            self.selectedIndex = min(self.selectedIndex, max(0, self.results.count - 1))
-            self.statusMessage = "Interaction '\(action.rawName)' succeeded on result \(self.selectedIndex + 1)."
-        } catch let selectorError as SelectorQueryCLIError {
-            self.statusMessage = selectorError.localizedDescription
-        } catch let parseError as OXQParseError {
-            self.statusMessage = "Parse error: \(parseError.description)"
-        } catch {
-            self.statusMessage = "Interaction failed: \(error.localizedDescription)"
-        }
-
-        self.mode = .results
-    }
-
-    private func shouldRefocusTerminal(after action: SelectorInteractionAction) -> Bool {
-        guard self.request.refocusTerminalAfterInteractions else { return false }
-        switch action {
-        case .click, .focus, .setValueAndSubmit, .sendKeystrokesAndSubmit:
-            return true
-        case .press, .setValue:
-            return false
-        }
-    }
-
-    private func refocusTerminalApp() {
-        guard let terminalAppPID else { return }
-        guard let terminalApp = NSRunningApplication(processIdentifier: terminalAppPID), !terminalApp.isTerminated else {
-            return
-        }
-        _ = terminalApp.activate(options: [])
-    }
-
     private func render() {
         let size = Self.terminalSize()
         var lines: [String] = []
@@ -287,7 +194,7 @@ private final class InteractiveSelectorSession {
             lines.append(self.statusLine(self.statusMessage))
 
         case .results:
-            lines.append(self.modeLine("mode=results | j/k or arrows move | / search | Enter interact | q edit query | Ctrl+C exit"))
+            lines.append(self.modeLine("mode=results | j/k or arrows move | / search | q edit query | Ctrl+C exit"))
             lines.append(self.statsLine(styled: true))
             lines.append("")
             self.appendResultLines(into: &lines, terminalRows: size.rows)
@@ -306,27 +213,6 @@ private final class InteractiveSelectorSession {
                 row: lines.count,
                 col: min(size.cols, searchPrefix.count + self.searchCursorIndex + 1)
             )
-
-        case .interactionMenu:
-            lines.append(self.modeLine("mode=interaction | c click | p press | f focus | v set-value | s set-value-submit | k send-keys-submit | q cancel"))
-            lines.append(self.statsLine(styled: true))
-            lines.append("")
-            self.appendResultLines(into: &lines, terminalRows: size.rows)
-            lines.append("")
-            lines.append(self.statusLine(self.statusMessage))
-
-        case let .interactionValueInput(kind):
-            lines.append(self.modeLine("mode=\(kind.label) | Enter submit | Esc cancel"))
-            lines.append(self.statsLine(styled: true))
-            lines.append("")
-            self.appendResultLines(into: &lines, terminalRows: size.rows)
-            lines.append("")
-            let valuePrefix = "value> "
-            lines.append(self.promptLine(prefix: valuePrefix, value: self.pendingValueText))
-            cursorPosition = (
-                row: lines.count,
-                col: min(size.cols, valuePrefix.count + self.pendingValueCursorIndex + 1)
-            )
         }
 
         if lines.count > size.rows {
@@ -335,9 +221,9 @@ private final class InteractiveSelectorSession {
 
         let shouldShowCursor: Bool
         switch self.mode {
-        case .query, .search, .interactionValueInput:
+        case .query, .search:
             shouldShowCursor = true
-        case .results, .interactionMenu:
+        case .results:
             shouldShowCursor = false
         }
 
@@ -425,10 +311,6 @@ private final class InteractiveSelectorSession {
             self.handleResultsMode(key: key)
         case .search:
             self.handleSearchMode(key: key)
-        case .interactionMenu:
-            self.handleInteractionMenuMode(key: key)
-        case let .interactionValueInput(kind):
-            self.handleInteractionValueInputMode(key: key, kind: kind)
         }
     }
 
@@ -523,11 +405,7 @@ private final class InteractiveSelectorSession {
 
         case .enter:
             self.pendingGG = false
-            if self.results.isEmpty {
-                self.statusMessage = "No results to interact with."
-            } else {
-                self.mode = .interactionMenu
-            }
+            self.statusMessage = "Use j/k (or arrows) to navigate results, or / to search."
 
         case .character("q"):
             self.pendingGG = false
@@ -573,86 +451,6 @@ private final class InteractiveSelectorSession {
 
         case let .character(character):
             self.insertCharacter(character, into: &self.searchText, cursor: &self.searchCursorIndex)
-
-        default:
-            break
-        }
-    }
-
-    private func handleInteractionMenuMode(key: TerminalKey) {
-        switch key {
-        case .character("c"):
-            self.executeInteraction(.click)
-
-        case .character("p"):
-            self.executeInteraction(.press)
-
-        case .character("f"):
-            self.executeInteraction(.focus)
-
-        case .character("v"):
-            self.pendingValueText = ""
-            self.pendingValueCursorIndex = 0
-            self.mode = .interactionValueInput(.setValue)
-
-        case .character("s"):
-            self.pendingValueText = ""
-            self.pendingValueCursorIndex = 0
-            self.mode = .interactionValueInput(.setValueSubmit)
-
-        case .character("k"):
-            self.pendingValueText = ""
-            self.pendingValueCursorIndex = 0
-            self.mode = .interactionValueInput(.sendKeystrokesSubmit)
-
-        case .character("q"), .escape:
-            self.mode = .results
-            self.statusMessage = "Interaction canceled."
-
-        default:
-            break
-        }
-    }
-
-    private func handleInteractionValueInputMode(key: TerminalKey, kind: InteractionKind) {
-        switch key {
-        case .enter:
-            switch kind {
-            case .setValue:
-                self.executeInteraction(.setValue(self.pendingValueText))
-            case .setValueSubmit:
-                self.executeInteraction(.setValueAndSubmit(self.pendingValueText))
-            case .sendKeystrokesSubmit:
-                self.executeInteraction(.sendKeystrokesAndSubmit(self.pendingValueText))
-            }
-
-        case .escape:
-            self.mode = .results
-            self.statusMessage = "Interaction canceled."
-
-        case .backspace:
-            self.deleteCharacterBeforeCursor(in: &self.pendingValueText, cursor: &self.pendingValueCursorIndex)
-
-        case .optionDelete:
-            self.deleteWordBeforeCursor(in: &self.pendingValueText, cursor: &self.pendingValueCursorIndex)
-
-        case .commandDelete:
-            self.deleteToStartOfLine(in: &self.pendingValueText, cursor: &self.pendingValueCursorIndex)
-
-        case .arrowLeft:
-            self.moveCursorLeft(cursor: &self.pendingValueCursorIndex)
-
-        case .arrowRight:
-            self.moveCursorRight(in: self.pendingValueText, cursor: &self.pendingValueCursorIndex)
-
-        case .altArrowLeft:
-            self.moveCursorWordLeft(in: self.pendingValueText, cursor: &self.pendingValueCursorIndex)
-
-        case .altArrowRight:
-            self.moveCursorWordRight(in: self.pendingValueText, cursor: &self.pendingValueCursorIndex)
-
-        case let .character(character):
-            self.insertCharacter(character, into: &self.pendingValueText, cursor: &self.pendingValueCursorIndex)
 
         default:
             break

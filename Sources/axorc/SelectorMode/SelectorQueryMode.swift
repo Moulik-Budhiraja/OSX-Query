@@ -11,15 +11,6 @@ enum SelectorQueryCLIError: LocalizedError, Equatable {
     case invalidMaxDepth(Int)
     case invalidLimit(Int)
     case applicationNotFound(String)
-    case missingInteraction
-    case missingResultIndex
-    case invalidResultIndex(Int)
-    case unknownInteraction(String)
-    case interactionValueRequired
-    case interactionValueNotAllowed(String)
-    case submitFlagRequiresSetValue
-    case interactionTargetOutOfBounds(index: Int, matchedCount: Int)
-    case interactionFailed(action: String, index: Int)
     case cachedSnapshotUnavailable(String)
     case referenceCollision(String)
 
@@ -37,68 +28,12 @@ enum SelectorQueryCLIError: LocalizedError, Equatable {
             "--limit must be 0 or greater. Use 0 for no cap. Received: \(value)."
         case let .applicationNotFound(identifier):
             "Could not find a running app for '\(identifier)'. Use a bundle id (e.g. com.apple.TextEdit), running app name, PID, or 'focused'."
-        case .missingInteraction:
-            "Selector interaction requires --interaction."
-        case .missingResultIndex:
-            "Selector interaction requires --result-index."
-        case let .invalidResultIndex(index):
-            "--result-index must be greater than 0. Received: \(index)."
-        case let .unknownInteraction(raw):
-            "Unknown --interaction '\(raw)'. Supported values: click, press, focus, set-value, send-keystrokes-submit."
-        case .interactionValueRequired:
-            "--interaction-value is required when --interaction is set to set-value or send-keystrokes-submit."
-        case let .interactionValueNotAllowed(action):
-            "--interaction-value is only valid with --interaction set-value or send-keystrokes-submit (received: \(action))."
-        case .submitFlagRequiresSetValue:
-            "--submit-after-set-value is only valid with --interaction set-value."
-        case let .interactionTargetOutOfBounds(index, matchedCount):
-            "--result-index \(index) is out of bounds for \(matchedCount) matched elements."
-        case let .interactionFailed(action, index):
-            "Interaction '\(action)' failed for result index \(index)."
         case let .cachedSnapshotUnavailable(message):
             message
         case let .referenceCollision(reference):
             "Selector query produced a duplicate element reference '\(reference)'. Re-run query."
         }
     }
-}
-
-enum SelectorInteractionAction: Equatable {
-    case click
-    case press
-    case focus
-    case setValue(String)
-    case setValueAndSubmit(String)
-    case sendKeystrokesAndSubmit(String)
-
-    var rawName: String {
-        switch self {
-        case .click:
-            return "click"
-        case .press:
-            return "press"
-        case .focus:
-            return "focus"
-        case .setValue:
-            return "set-value"
-        case .setValueAndSubmit:
-            return "set-value-submit"
-        case .sendKeystrokesAndSubmit:
-            return "send-keystrokes-submit"
-        }
-    }
-}
-
-struct SelectorInteractionRequest: Equatable {
-    let resultIndex: Int
-    let action: SelectorInteractionAction
-}
-
-struct SelectorInteractionSummary: Equatable {
-    let resultIndex: Int
-    let action: String
-    let role: String
-    let computedName: String?
 }
 
 struct SelectorQueryRequest: Equatable {
@@ -111,7 +46,6 @@ struct SelectorQueryRequest: Equatable {
     let showNameSource: Bool
     let cacheSessionEnabled: Bool
     let useCachedSnapshot: Bool
-    let interaction: SelectorInteractionRequest?
 
     init(
         appIdentifier: String,
@@ -122,8 +56,7 @@ struct SelectorQueryRequest: Equatable {
         showPath: Bool,
         showNameSource: Bool = false,
         cacheSessionEnabled: Bool = false,
-        useCachedSnapshot: Bool = false,
-        interaction: SelectorInteractionRequest? = nil)
+        useCachedSnapshot: Bool = false)
     {
         self.appIdentifier = appIdentifier
         self.selector = selector
@@ -134,7 +67,6 @@ struct SelectorQueryRequest: Equatable {
         self.showNameSource = showNameSource
         self.cacheSessionEnabled = cacheSessionEnabled
         self.useCachedSnapshot = useCachedSnapshot
-        self.interaction = interaction
     }
 }
 
@@ -153,23 +85,16 @@ enum SelectorQueryRequestBuilder {
         showNameSource: Bool = false,
         cacheSession: Bool = false,
         useCached: Bool = false,
-        interaction: String? = nil,
-        interactionValue: String? = nil,
-        submitAfterSetValue: Bool = false,
-        resultIndex: Int? = nil,
         hasStructuredInput: Bool,
         stdoutSupportsANSI: Bool) throws -> SelectorQueryRequest?
     {
         let trimmedApp = app?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedSelector = selector?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedInteraction = interaction?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasAnyInteractionInput = !(trimmedInteraction?.isEmpty ?? true) || interactionValue != nil || resultIndex != nil ||
-            submitAfterSetValue
 
         let hasApp = !(trimmedApp?.isEmpty ?? true)
         let hasSelector = !(trimmedSelector?.isEmpty ?? true)
 
-        if !hasApp, !hasSelector, !hasAnyInteractionInput {
+        if !hasApp, !hasSelector {
             return nil
         }
 
@@ -188,73 +113,6 @@ enum SelectorQueryRequestBuilder {
             throw SelectorQueryCLIError.invalidLimit(limit)
         }
 
-        if let resultIndex, resultIndex <= 0 {
-            throw SelectorQueryCLIError.invalidResultIndex(resultIndex)
-        }
-
-        let interactionRequest: SelectorInteractionRequest?
-        if hasAnyInteractionInput {
-            guard let trimmedInteraction, !trimmedInteraction.isEmpty else {
-                throw SelectorQueryCLIError.missingInteraction
-            }
-            guard let resultIndex else {
-                throw SelectorQueryCLIError.missingResultIndex
-            }
-
-            switch trimmedInteraction.lowercased() {
-            case "click":
-                if interactionValue != nil {
-                    throw SelectorQueryCLIError.interactionValueNotAllowed("click")
-                }
-                if submitAfterSetValue {
-                    throw SelectorQueryCLIError.submitFlagRequiresSetValue
-                }
-                interactionRequest = SelectorInteractionRequest(resultIndex: resultIndex, action: .click)
-
-            case "press":
-                if interactionValue != nil {
-                    throw SelectorQueryCLIError.interactionValueNotAllowed("press")
-                }
-                if submitAfterSetValue {
-                    throw SelectorQueryCLIError.submitFlagRequiresSetValue
-                }
-                interactionRequest = SelectorInteractionRequest(resultIndex: resultIndex, action: .press)
-
-            case "focus":
-                if interactionValue != nil {
-                    throw SelectorQueryCLIError.interactionValueNotAllowed("focus")
-                }
-                if submitAfterSetValue {
-                    throw SelectorQueryCLIError.submitFlagRequiresSetValue
-                }
-                interactionRequest = SelectorInteractionRequest(resultIndex: resultIndex, action: .focus)
-
-            case "set-value":
-                guard let interactionValue else {
-                    throw SelectorQueryCLIError.interactionValueRequired
-                }
-                interactionRequest = SelectorInteractionRequest(
-                    resultIndex: resultIndex,
-                    action: submitAfterSetValue ? .setValueAndSubmit(interactionValue) : .setValue(interactionValue))
-
-            case "send-keystrokes-submit":
-                if submitAfterSetValue {
-                    throw SelectorQueryCLIError.submitFlagRequiresSetValue
-                }
-                guard let interactionValue else {
-                    throw SelectorQueryCLIError.interactionValueRequired
-                }
-                interactionRequest = SelectorInteractionRequest(
-                    resultIndex: resultIndex,
-                    action: .sendKeystrokesAndSubmit(interactionValue))
-
-            default:
-                throw SelectorQueryCLIError.unknownInteraction(trimmedInteraction)
-            }
-        } else {
-            interactionRequest = nil
-        }
-
         let resolvedLimit: Int
         if let limit {
             resolvedLimit = (limit == 0) ? unlimitedLimit : limit
@@ -271,8 +129,7 @@ enum SelectorQueryRequestBuilder {
             showPath: showPath,
             showNameSource: showNameSource,
             cacheSessionEnabled: cacheSession || useCached,
-            useCachedSnapshot: useCached,
-            interaction: interactionRequest)
+            useCachedSnapshot: useCached)
     }
 }
 
@@ -282,7 +139,6 @@ struct SelectorQueryExecutionReport: Equatable {
     let traversedCount: Int
     let matchedCount: Int
     let shownCount: Int
-    let interaction: SelectorInteractionSummary?
     let results: [SelectorMatchSummary]
 
     init(
@@ -291,7 +147,6 @@ struct SelectorQueryExecutionReport: Equatable {
         traversedCount: Int,
         matchedCount: Int,
         shownCount: Int,
-        interaction: SelectorInteractionSummary? = nil,
         results: [SelectorMatchSummary])
     {
         self.request = request
@@ -299,7 +154,6 @@ struct SelectorQueryExecutionReport: Equatable {
         self.traversedCount = traversedCount
         self.matchedCount = matchedCount
         self.shownCount = shownCount
-        self.interaction = interaction
         self.results = results
     }
 }
@@ -307,18 +161,15 @@ struct SelectorQueryExecutionReport: Equatable {
 struct SelectorQueryResult: Equatable {
     let traversedCount: Int
     let matchedCount: Int
-    let interaction: SelectorInteractionSummary?
     let shown: [SelectorMatchSummary]
 
     init(
         traversedCount: Int,
         matchedCount: Int,
-        interaction: SelectorInteractionSummary? = nil,
         shown: [SelectorMatchSummary])
     {
         self.traversedCount = traversedCount
         self.matchedCount = matchedCount
-        self.interaction = interaction
         self.shown = shown
     }
 }
@@ -524,7 +375,6 @@ struct SelectorQueryRunner {
             traversedCount: result.traversedCount,
             matchedCount: result.matchedCount,
             shownCount: result.shown.count,
-            interaction: result.interaction,
             results: result.shown)
     }
 
@@ -554,11 +404,6 @@ private enum LiveSelectorQueryExecutor {
         let snapshot: SelectorPrefetchSnapshot
     }
 
-    private static let setValueSubmitStepDelaySeconds: TimeInterval = 0.2
-    private static let sendKeystrokesSubmitStepDelaySeconds: TimeInterval = 0.3
-    private static let postActivationClickDelaySeconds: TimeInterval = 0.2
-    private static let textInputFocusRetryDelaySeconds: TimeInterval = 0.2
-    private static let textInputFocusRetryMaxAttempts: Int = 7
     private static let cacheReferenceAttributeName = "__axorc_ref"
     private static var prefetchCache: SelectorPrefetchCacheEntry?
 
@@ -614,10 +459,6 @@ private enum LiveSelectorQueryExecutor {
             maxDepth: request.maxDepth,
             memoizationContext: memoizationContext)
         let matchedElements = evaluation.matches
-        let interactionSummary = try self.performInteractionIfRequested(
-            request.interaction,
-            matchedElements: matchedElements,
-            memoizationContext: memoizationContext)
 
         let actionElementsByReference = prefetchedSnapshot.elementsByReference
         let shownElements = Array(matchedElements.prefix(request.limit))
@@ -665,7 +506,6 @@ private enum LiveSelectorQueryExecutor {
         return SelectorQueryResult(
             traversedCount: evaluation.traversedNodeCount,
             matchedCount: matchedElements.count,
-            interaction: interactionSummary,
             shown: shownSummaries)
     }
 
@@ -1108,200 +948,6 @@ private enum LiveSelectorQueryExecutor {
         attributeValuesByElement[element] = attributes
         elementsByReference[reference] = element
         return reference
-    }
-
-    @MainActor
-    private static func performInteractionIfRequested(
-        _ interaction: SelectorInteractionRequest?,
-        matchedElements: [Element],
-        memoizationContext: OXQQueryMemoizationContext<Element>) throws -> SelectorInteractionSummary?
-    {
-        guard let interaction else { return nil }
-        guard interaction.resultIndex <= matchedElements.count else {
-            throw SelectorQueryCLIError.interactionTargetOutOfBounds(
-                index: interaction.resultIndex,
-                matchedCount: matchedElements.count)
-        }
-
-        let targetElement = matchedElements[interaction.resultIndex - 1]
-
-        let succeeded: Bool
-        switch interaction.action {
-        case .click:
-            succeeded = self.clickElement(targetElement)
-        case .press:
-            succeeded = targetElement.press()
-        case .focus:
-            succeeded = self.focusElement(targetElement)
-        case let .setValue(value):
-            succeeded = targetElement.setValue(value, forAttribute: AXAttributeNames.kAXValueAttribute)
-        case let .setValueAndSubmit(value):
-            let cachedRole = memoizationContext.role(of: targetElement)
-            guard self.clickForSetValueSubmit(targetElement, role: cachedRole) else {
-                succeeded = false
-                break
-            }
-            Thread.sleep(forTimeInterval: self.setValueSubmitStepDelaySeconds)
-
-            guard targetElement.setValue(value, forAttribute: AXAttributeNames.kAXValueAttribute) else {
-                succeeded = false
-                break
-            }
-            Thread.sleep(forTimeInterval: self.setValueSubmitStepDelaySeconds)
-
-            do {
-                try Element.typeKey(.return)
-                succeeded = true
-            } catch {
-                succeeded = false
-            }
-        case let .sendKeystrokesAndSubmit(value):
-            let cachedRole = memoizationContext.role(of: targetElement)
-            guard self.clickForSendKeystrokesSubmit(targetElement, role: cachedRole) else {
-                succeeded = false
-                break
-            }
-            Thread.sleep(forTimeInterval: self.sendKeystrokesSubmitStepDelaySeconds)
-
-            do {
-                try Element.typeText(value, delay: 0)
-            } catch {
-                succeeded = false
-                break
-            }
-            Thread.sleep(forTimeInterval: self.sendKeystrokesSubmitStepDelaySeconds)
-
-            do {
-                try Element.typeKey(.return, modifiers: [.maskCommand])
-                succeeded = true
-            } catch {
-                succeeded = false
-            }
-        }
-
-        guard succeeded else {
-            throw SelectorQueryCLIError.interactionFailed(
-                action: interaction.action.rawName,
-                index: interaction.resultIndex)
-        }
-
-        return SelectorInteractionSummary(
-            resultIndex: interaction.resultIndex,
-            action: interaction.action.rawName,
-            role: memoizationContext.role(of: targetElement) ?? "AXUnknown",
-            computedName: SelectorMatchSummary.normalize(memoizationContext.computedNameDetails(of: targetElement)?.value))
-    }
-
-    @MainActor
-    private static func focusElement(_ element: Element) -> Bool {
-        if element.setValue(true, forAttribute: AXAttributeNames.kAXFocusedAttribute) {
-            return true
-        }
-        if element.press() {
-            return true
-        }
-        return self.clickElement(element)
-    }
-
-    @MainActor
-    private static func clickElement(_ element: Element) -> Bool {
-        if self.activateOwningApplication(for: element) {
-            Thread.sleep(forTimeInterval: self.postActivationClickDelaySeconds)
-        }
-        return ((try? element.click()) != nil)
-    }
-
-    @MainActor
-    private static func activateOwningApplication(for element: Element) -> Bool {
-        guard let pid = self.owningPID(for: element) else {
-            return false
-        }
-
-        guard let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else {
-            return false
-        }
-
-        if app.isActive {
-            return true
-        }
-
-        return app.activate(options: [.activateAllWindows])
-    }
-
-    @MainActor
-    private static func owningPID(for element: Element) -> pid_t? {
-        if let pid = element.pid(), pid > 0 {
-            return pid
-        }
-
-        var current = element.parent()
-        var depth = 0
-        while let candidate = current, depth < 256 {
-            if let pid = candidate.pid(), pid > 0 {
-                return pid
-            }
-            current = candidate.parent()
-            depth += 1
-        }
-
-        return nil
-    }
-
-    @MainActor
-    private static func clickForSetValueSubmit(_ element: Element, role: String?) -> Bool {
-        if self.shouldRetryFocusClicks(role: role) {
-            return self.clickUntilFocused(element)
-        }
-        return self.clickElement(element)
-    }
-
-    @MainActor
-    private static func clickForSendKeystrokesSubmit(_ element: Element, role: String?) -> Bool {
-        if self.shouldRetryFocusClicks(role: role) {
-            return self.clickUntilFocused(element)
-        }
-
-        guard self.clickElement(element) else {
-            return false
-        }
-        Thread.sleep(forTimeInterval: self.sendKeystrokesSubmitStepDelaySeconds)
-        return self.clickElement(element)
-    }
-
-    @MainActor
-    private static func clickUntilFocused(_ element: Element) -> Bool {
-        if self.activateOwningApplication(for: element) {
-            Thread.sleep(forTimeInterval: self.postActivationClickDelaySeconds)
-        }
-
-        for attempt in 1...self.textInputFocusRetryMaxAttempts {
-            guard ((try? element.click()) != nil) else {
-                if attempt < self.textInputFocusRetryMaxAttempts {
-                    Thread.sleep(forTimeInterval: self.textInputFocusRetryDelaySeconds)
-                }
-                continue
-            }
-
-            if element.isFocused() == true {
-                return true
-            }
-
-            if attempt < self.textInputFocusRetryMaxAttempts {
-                Thread.sleep(forTimeInterval: self.textInputFocusRetryDelaySeconds)
-            }
-        }
-
-        return false
-    }
-
-    @MainActor
-    private static func shouldRetryFocusClicks(role: String?) -> Bool {
-        switch role {
-        case AXRoleNames.kAXComboBoxRole, AXRoleNames.kAXTextFieldRole, AXRoleNames.kAXTextAreaRole:
-            return true
-        default:
-            return false
-        }
     }
 }
 

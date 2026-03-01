@@ -294,7 +294,6 @@ private struct SelectorCacheDaemonPayload: Codable {
     let showPath: Bool
     let showNameSource: Bool
     let useCachedSnapshot: Bool
-    let interaction: SelectorCacheDaemonInteractionPayload?
 
     init(request: SelectorQueryRequest) {
         self.appIdentifier = request.appIdentifier
@@ -305,7 +304,6 @@ private struct SelectorCacheDaemonPayload: Codable {
         self.showPath = request.showPath
         self.showNameSource = request.showNameSource
         self.useCachedSnapshot = request.useCachedSnapshot
-        self.interaction = SelectorCacheDaemonInteractionPayload(request.interaction)
     }
 
     func toSelectorQueryRequest() -> SelectorQueryRequest {
@@ -318,8 +316,7 @@ private struct SelectorCacheDaemonPayload: Codable {
             showPath: self.showPath,
             showNameSource: self.showNameSource,
             cacheSessionEnabled: true,
-            useCachedSnapshot: self.useCachedSnapshot,
-            interaction: self.interaction?.toInteractionRequest())
+            useCachedSnapshot: self.useCachedSnapshot)
     }
 }
 
@@ -350,66 +347,6 @@ private struct SelectorCacheDaemonResponse: Codable {
     let success: Bool
     let output: String?
     let error: String?
-}
-
-private enum SelectorCacheDaemonInteractionAction: String, Codable {
-    case click
-    case press
-    case focus
-    case setValue
-    case setValueAndSubmit
-    case sendKeystrokesAndSubmit
-}
-
-private struct SelectorCacheDaemonInteractionPayload: Codable {
-    let resultIndex: Int
-    let action: SelectorCacheDaemonInteractionAction
-    let value: String?
-
-    init?(_ interaction: SelectorInteractionRequest?) {
-        guard let interaction else { return nil }
-        self.resultIndex = interaction.resultIndex
-
-        switch interaction.action {
-        case .click:
-            self.action = .click
-            self.value = nil
-        case .press:
-            self.action = .press
-            self.value = nil
-        case .focus:
-            self.action = .focus
-            self.value = nil
-        case let .setValue(value):
-            self.action = .setValue
-            self.value = value
-        case let .setValueAndSubmit(value):
-            self.action = .setValueAndSubmit
-            self.value = value
-        case let .sendKeystrokesAndSubmit(value):
-            self.action = .sendKeystrokesAndSubmit
-            self.value = value
-        }
-    }
-
-    func toInteractionRequest() -> SelectorInteractionRequest {
-        let selectorAction: SelectorInteractionAction
-        switch self.action {
-        case .click:
-            selectorAction = .click
-        case .press:
-            selectorAction = .press
-        case .focus:
-            selectorAction = .focus
-        case .setValue:
-            selectorAction = .setValue(self.value ?? "")
-        case .setValueAndSubmit:
-            selectorAction = .setValueAndSubmit(self.value ?? "")
-        case .sendKeystrokesAndSubmit:
-            selectorAction = .sendKeystrokesAndSubmit(self.value ?? "")
-        }
-        return SelectorInteractionRequest(resultIndex: self.resultIndex, action: selectorAction)
-    }
 }
 
 private enum SelectorCacheSocketTransport {
