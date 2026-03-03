@@ -76,6 +76,7 @@ Query posture:
 - Prefer bundle IDs for app activation (`open "net.imput.helium"`, `open "com.microsoft.Word"`).
 - `send text "..." to <ref>` can be unreliable in rich editor surfaces but should be used for the first attempt at typing.
 - `send text "..." as keys to <ref>` is the reliable path for rich editors and punctuation.
+- `send scroll to <ref>` uses AX `AXScrollToVisible` only (no wheel-scroll fallback).
 
 ## Action statements used most often
 ```bash
@@ -89,6 +90,7 @@ send text "..." to <ref>;
 send text "..." as keys to <ref>;
 send hotkey cmd+a to <ref>;
 send scroll down to <ref>;
+send scroll to <ref>;
 sleep 100;
 ```
 
@@ -97,3 +99,5 @@ sleep 100;
 - `Unknown element reference`: refs are stale; re-query with `--cache-session`.
 - Action executed but UI did not change: use screenshot + re-query to verify target and state.
 - Text did not appear in editor: switch from `send text ... to` to `send text ... as keys to`.
+- `AXScrollToVisible is not supported for <ref>`: target element does not expose that AX action.
+- `AXScrollToVisible failed for <ref>: ...`: AX action call failed at runtime; re-query and verify target context.

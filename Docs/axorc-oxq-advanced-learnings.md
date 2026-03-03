@@ -137,6 +137,7 @@ send right click to <ref>;
 send drag <srcRef> to <dstRef>;
 send hotkey <chord> to <ref>;
 send scroll up|down|left|right to <ref>;
+send scroll to <ref>;
 read <attributeName> from <ref>;
 sleep <milliseconds>;
 open "AppNameOrBundleID";
@@ -206,6 +207,11 @@ send hotkey shift+tab to 063701895;
 `send right click to <ref>;`
 - Right-clicks the element center (context menu path).
 
+`send scroll to <ref>;`
+- Calls AX `AXScrollToVisible` on the target element.
+- No visibility pre-check and no wheel-scroll fallback.
+- If unavailable or it fails, action returns an explicit runtime error.
+
 `read <attributeName> from <ref>;`
 - Reads and prints the full attribute value. (can be ussful to grep from)
 - Supports aliases including `CPName`.
@@ -250,6 +256,10 @@ axorc --actions "send text \"He stated deep concern for 'a significant number of
   - Re-verify target, focus, and post-action state with query/screenshot.
 - Text missing in editor
   - Switch from `send text ... to` to `send text ... as keys to`.
+- `AXScrollToVisible is not supported for <ref>`
+  - Target element does not expose that AX action.
+- `AXScrollToVisible failed for <ref>: ...`
+  - AX action failed at runtime; re-query and validate the ref and UI state.
 
 ## 15. End-to-end starter template
 ```bash
