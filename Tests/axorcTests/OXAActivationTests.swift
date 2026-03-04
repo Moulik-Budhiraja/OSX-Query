@@ -94,6 +94,50 @@ struct OXAActivationTests {
         #expect(state.activationCount >= 1)
     }
 
+    @Test("Accepts workspace frontmost when focused pid is stale")
+    func acceptsWorkspaceFrontmostWhenFocusedPidIsStale() {
+        let state = ActivationState(frontmostPid: 99, focusedPid: 123)
+
+        let success = OXAExecutor.ensureApplicationFrontmost(
+            pid: 99,
+            timeout: 0.08,
+            pollInterval: 0.02,
+            now: { state.now },
+            sleep: { seconds in state.now.addTimeInterval(seconds) },
+            activatePid: { _ in
+                state.activationCount += 1
+                return true
+            },
+            frontmostPidProvider: { state.frontmostPid },
+            focusedPidProvider: { state.focusedPid },
+            axFrontmostProvider: { _ in false })
+
+        #expect(success == true)
+        #expect(state.activationCount >= 1)
+    }
+
+    @Test("Falls back to AX frontmost when focused pid conflicts and workspace pid is unavailable")
+    func fallsBackToAXFrontmostWhenFocusedPidConflictsAndWorkspacePidUnavailable() {
+        let state = ActivationState(frontmostPid: nil, focusedPid: 123)
+
+        let success = OXAExecutor.ensureApplicationFrontmost(
+            pid: 99,
+            timeout: 0.08,
+            pollInterval: 0.02,
+            now: { state.now },
+            sleep: { seconds in state.now.addTimeInterval(seconds) },
+            activatePid: { _ in
+                state.activationCount += 1
+                return true
+            },
+            frontmostPidProvider: { state.frontmostPid },
+            focusedPidProvider: { state.focusedPid },
+            axFrontmostProvider: { pid in pid == 99 })
+
+        #expect(success == true)
+        #expect(state.activationCount >= 1)
+    }
+
     @Test("Returns false when app never becomes frontmost")
     func returnsFalseWhenNeverFrontmost() {
         let state = ActivationState(frontmostPid: nil, focusedPid: nil)

@@ -28,7 +28,7 @@ enum OXAExecutor {
     }
 
     private static let postPreflightDelaySeconds: TimeInterval = 0.1
-    private static let appActivationTimeoutSeconds: TimeInterval = 1.0
+    private static let appActivationTimeoutSeconds: TimeInterval = 1.5
     private static let appActivationPollIntervalSeconds: TimeInterval = 0.05
     private static let appleScriptActivationTimeoutSeconds: TimeInterval = 0.35
     private static let processPollIntervalSeconds: TimeInterval = 0.01
@@ -554,14 +554,18 @@ enum OXAExecutor {
         let frontmostPid = frontmostPidProvider()
         let focusedPid = focusedPidProvider()
 
-        if let frontmostPid, let focusedPid {
-            return frontmostPid == pid && focusedPid == pid
-        }
+        // Workspace frontmost is the strongest signal when available.
         if let frontmostPid {
             return frontmostPid == pid
         }
+
+        // Focused application is a fallback signal when workspace cannot provide one.
         if let focusedPid {
-            return focusedPid == pid
+            if focusedPid == pid {
+                return true
+            }
+            // Focus can briefly lag app-switch transitions; AXFrontmost may already be updated.
+            return axFrontmostProvider(pid)
         }
 
         // Only trust AXFrontmost when other focus signals are unavailable.
