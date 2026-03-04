@@ -42,6 +42,18 @@ struct OXQSelectorEngineTests {
 
         #expect(
             fixture.ids(try engine.findAll(
+                matching: #"AXStaticText[AXValue*=""]"#,
+                from: fixture.root,
+                maxDepth: 10)) == ["staticA", "staticB", "staticParent", "staticChild"])
+
+        #expect(
+            (try engine.findAll(
+                matching: #"AXButton[AXValue*=""]"#,
+                from: fixture.root,
+                maxDepth: 10)).isEmpty)
+
+        #expect(
+            fixture.ids(try engine.findAll(
                 matching: #"AXStaticText[AXTitle^="Spot"]"#,
                 from: fixture.root,
                 maxDepth: 10)) == ["staticA"])

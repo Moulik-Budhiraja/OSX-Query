@@ -42,6 +42,7 @@ Useful aliases for matching:
 Matching reminders:
 - String matching is case-sensitive for `=`, `^=`, and `$=`.
 - Fuzzy contains matching (`*=`) is case-insensitive.
+- `*=""` matches any element where that attribute is present.
 - Result de-duplication is by underlying AX element identity, not visible text.
 - Distinct elements can share similar names and still behave differently.
 

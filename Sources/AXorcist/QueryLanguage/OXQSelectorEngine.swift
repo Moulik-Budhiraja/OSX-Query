@@ -323,6 +323,10 @@ private struct OXQEvaluator<Node: Hashable> {
         case .equals:
             return actualValue == attribute.value
         case .contains:
+            // Mirror string semantics: every string contains the empty string.
+            if attribute.value.isEmpty {
+                return true
+            }
             return actualValue.range(of: attribute.value, options: [.caseInsensitive]) != nil
         case .startsWith:
             return actualValue.hasPrefix(attribute.value)
