@@ -12,8 +12,8 @@ Use AXORC as a computer-use tool when an agent must interact with desktop UIs, b
 ## Mandatory Pre-Read (Do Not Skip)
 
 Read both documents in full before executing any `axorc` command:
-- [AXORC Query Usage](../../docs/axorc-query-usage.md)
-- [AXORC Actions Usage](../../docs/axorc-actions-usage.md)
+- [AXORC Query Usage](references/axorc-query-usage.md)
+- [AXORC Actions Usage](references/axorc-actions-usage.md)
 
 If either file is missing at these relative paths, stop and locate them first. Do not execute `axorc` until both are read completely.
 Treat those two usage docs as the source of truth for all command syntax, workflow sequencing, and troubleshooting details.
