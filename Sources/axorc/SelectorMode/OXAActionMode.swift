@@ -8,21 +8,50 @@ enum SelectorActionRefStore {
     private(set) static var hasSnapshot = false
     private(set) static var snapshotAppPID: pid_t?
     private static var elementsByReference: [String: Element] = [:]
+    private static var frameByReference: [String: CGRect] = [:]
+    private static var parentReferenceByReference: [String: String] = [:]
+    private static var roleByReference: [String: String] = [:]
 
-    static func replace(with elementsByReference: [String: Element], appPID: pid_t?) {
-        self.elementsByReference = elementsByReference
+    static func replace(
+        with elementsByReference: [String: Element],
+        appPID: pid_t?,
+        frameByReference: [String: CGRect] = [:],
+        parentReferenceByReference: [String: String] = [:],
+        roleByReference: [String: String] = [:])
+    {
+        self.elementsByReference = Dictionary(
+            uniqueKeysWithValues: elementsByReference.map { ($0.key.lowercased(), $0.value) })
         self.snapshotAppPID = appPID
+        self.frameByReference = Dictionary(uniqueKeysWithValues: frameByReference.map { ($0.key.lowercased(), $0.value) })
+        self.parentReferenceByReference = Dictionary(
+            uniqueKeysWithValues: parentReferenceByReference.map { ($0.key.lowercased(), $0.value.lowercased()) })
+        self.roleByReference = Dictionary(uniqueKeysWithValues: roleByReference.map { ($0.key.lowercased(), $0.value) })
         self.hasSnapshot = true
     }
 
     static func clear() {
         self.elementsByReference = [:]
         self.snapshotAppPID = nil
+        self.frameByReference = [:]
+        self.parentReferenceByReference = [:]
+        self.roleByReference = [:]
         self.hasSnapshot = false
     }
 
     static func element(for reference: String) -> Element? {
         self.elementsByReference[reference.lowercased()]
+    }
+
+    static func frame(for reference: String) -> CGRect? {
+        self.frameByReference[reference.lowercased()]
+    }
+
+    static func parentReference(for reference: String) -> String? {
+        self.parentReferenceByReference[reference.lowercased()]
+    }
+
+    static func role(for reference: String) -> String? {
+        self.roleByReference[reference.lowercased()]
     }
 }
 
@@ -468,6 +497,28 @@ struct OXAParser {
 
 @MainActor
 enum OXAExecutor {
+    private enum VisibilityProbeStatus: String {
+        case visible
+        case notVisible = "not_visible"
+        case unknown
+    }
+
+    private struct VisibilityProbeTelemetry {
+        let targetRef: String
+        let status: VisibilityProbeStatus
+        let reason: String
+        let elementFrame: CGRect?
+        let finalFrame: CGRect?
+        let clippingAncestorCount: Int
+    }
+
+    private struct StatementExecutionResult {
+        let readOutput: String?
+        let warnings: [String]
+
+        static let none = StatementExecutionResult(readOutput: nil, warnings: [])
+    }
+
     private static let postPreflightDelaySeconds: TimeInterval = 0.1
     private static let appActivationTimeoutSeconds: TimeInterval = 1.0
     private static let appActivationPollIntervalSeconds: TimeInterval = 0.05
@@ -476,6 +527,9 @@ enum OXAExecutor {
     private static let appLaunchWaitTimeoutSeconds: TimeInterval = 2.0
     private static let windowCreationWaitTimeoutSeconds: TimeInterval = 1.0
     private static let axScrollToVisibleAction = "AXScrollToVisible"
+    private static let clickVisibilityWarningText = "Warning: target element not visible, click success unknown"
+    private static let minimumVisibleDimension: CGFloat = 2.0
+    private static let minimumVisibleArea: CGFloat = 16.0
     private static var lastActivationFailureDescription: String?
 
     static func execute(programSource: String) throws -> String {
@@ -484,11 +538,12 @@ enum OXAExecutor {
 
         var output: [String] = []
         for (index, statement) in program.statements.enumerated() {
-            let readOutput = try self.execute(statement)
+            let result = try self.execute(statement)
             output.append("ok [\(index + 1)] \(self.describe(statement))")
-            if let readOutput {
+            if let readOutput = result.readOutput {
                 output.append("value [\(index + 1)] \(readOutput)")
             }
+            output.append(contentsOf: result.warnings)
         }
 
         if output.isEmpty {
@@ -611,7 +666,7 @@ enum OXAExecutor {
         }
     }
 
-    private static func execute(_ statement: OXAStatement) throws -> String? {
+    private static func execute(_ statement: OXAStatement) throws -> StatementExecutionResult {
         switch statement {
         case let .sendText(text, targetRef):
             let target = try self.resolveElementReference(targetRef)
@@ -622,7 +677,7 @@ enum OXAExecutor {
             guard target.setValue(text, forAttribute: AXAttributeNames.kAXValueAttribute) else {
                 throw OXAActionError.runtime("Failed to set AXValue on target element \(targetRef).")
             }
-            return nil
+            return .none
 
         case let .sendTextAsKeys(text, targetRef):
             let target = try self.resolveElementReference(targetRef)
@@ -636,19 +691,25 @@ enum OXAExecutor {
                 throw OXAActionError.runtime("Unable to determine owning app for text input target \(targetRef).")
             }
             try self.executeTextAsKeys(text, targetPid: targetPid)
-            return nil
+            return .none
 
         case let .sendClick(targetRef):
             let target = try self.resolveElementReference(targetRef)
+            let visibilityProbe = self.visibilityProbe(for: targetRef)
             self.preflightTargetElement(target)
             try self.clickElementCenter(target)
-            return nil
+            return StatementExecutionResult(
+                readOutput: nil,
+                warnings: self.warningFromVisibilityProbe(visibilityProbe).map { [$0] } ?? [])
 
         case let .sendRightClick(targetRef):
             let target = try self.resolveElementReference(targetRef)
+            let visibilityProbe = self.visibilityProbe(for: targetRef)
             self.preflightTargetElement(target)
             try self.clickElementCenter(target, button: .right)
-            return nil
+            return StatementExecutionResult(
+                readOutput: nil,
+                warnings: self.warningFromVisibilityProbe(visibilityProbe).map { [$0] } ?? [])
 
         case let .sendDrag(sourceRef, targetRef):
             let source = try self.resolveElementReference(sourceRef)
@@ -663,7 +724,7 @@ enum OXAExecutor {
             }
 
             try InputDriver.drag(from: sourceCenter, to: destinationCenter, steps: 20, interStepDelay: 0.005)
-            return nil
+            return .none
 
         case let .sendHotkey(chord, targetRef):
             let target = try self.resolveElementReference(targetRef)
@@ -672,7 +733,7 @@ enum OXAExecutor {
                 throw OXAActionError.runtime("Unable to determine owning app for hotkey target \(targetRef).")
             }
             try self.executeHotkey(chord, targetPid: targetPid)
-            return nil
+            return .none
 
         case let .sendScroll(direction, targetRef):
             let target = try self.resolveElementReference(targetRef)
@@ -681,12 +742,13 @@ enum OXAExecutor {
                 throw OXAActionError.runtime("Unable to resolve frame for scroll target \(targetRef).")
             }
             try self.scroll(direction: direction, at: center)
-            return nil
+            return .none
 
         case let .sendScrollIntoView(targetRef):
             let target = try self.resolveElementReference(targetRef)
             self.preflightTargetElement(target)
-            return try self.scrollElementIntoView(target, targetRef: targetRef)
+            _ = try self.scrollElementIntoView(target, targetRef: targetRef)
+            return .none
 
         case let .readAttribute(attributeName, targetRef):
             let target = try self.resolveElementReference(targetRef)
@@ -694,24 +756,24 @@ enum OXAExecutor {
                 throw OXAActionError.runtime(
                     "Attribute '\(attributeName)' has no readable value on target \(targetRef).")
             }
-            return value
+            return StatementExecutionResult(readOutput: value, warnings: [])
 
         case let .sleep(milliseconds):
             guard milliseconds >= 0 else {
                 throw OXAActionError.runtime("Sleep duration must be non-negative.")
             }
             Thread.sleep(forTimeInterval: Double(milliseconds) / 1000)
-            return nil
+            return .none
 
         case let .open(app):
             try self.openApplication(app)
             selectorQueryInvalidateCaches()
-            return nil
+            return .none
 
         case let .close(app):
             try self.closeApplication(app)
             selectorQueryInvalidateCaches()
-            return nil
+            return .none
         }
     }
 
@@ -725,6 +787,160 @@ enum OXAExecutor {
         }
 
         return element
+    }
+
+    private static func warningFromVisibilityProbe(_ telemetry: VisibilityProbeTelemetry) -> String? {
+        telemetry.status == .visible ? nil : self.clickVisibilityWarningText
+    }
+
+    private static func visibilityProbe(for reference: String) -> VisibilityProbeTelemetry {
+        let normalizedReference = reference.lowercased()
+        guard let elementFrame = SelectorActionRefStore.frame(for: normalizedReference) else {
+            return VisibilityProbeTelemetry(
+                targetRef: normalizedReference,
+                status: .unknown,
+                reason: "missing_target_frame",
+                elementFrame: nil,
+                finalFrame: nil,
+                clippingAncestorCount: 0)
+        }
+        guard self.hasPositiveArea(elementFrame) else {
+            return VisibilityProbeTelemetry(
+                targetRef: normalizedReference,
+                status: .notVisible,
+                reason: "non_positive_target_frame",
+                elementFrame: elementFrame,
+                finalFrame: elementFrame,
+                clippingAncestorCount: 0)
+        }
+
+        if !self.meetsMinimumVisibleSize(elementFrame) {
+            return VisibilityProbeTelemetry(
+                targetRef: normalizedReference,
+                status: .unknown,
+                reason: "target_frame_below_minimum_size",
+                elementFrame: elementFrame,
+                finalFrame: elementFrame,
+                clippingAncestorCount: 0)
+        }
+
+        var visibleRect = elementFrame
+        var currentReference = normalizedReference
+        var depth = 0
+        var clippingAncestorCount = 0
+
+        while depth < 512 {
+            guard let parentReference = SelectorActionRefStore.parentReference(for: currentReference) else {
+                break
+            }
+            currentReference = parentReference
+            depth += 1
+
+            guard self.isClippingRole(SelectorActionRefStore.role(for: currentReference)) else {
+                continue
+            }
+            clippingAncestorCount += 1
+
+            guard let parentFrame = SelectorActionRefStore.frame(for: currentReference) else {
+                return VisibilityProbeTelemetry(
+                    targetRef: normalizedReference,
+                    status: .unknown,
+                    reason: "missing_clipping_frame:\(currentReference)",
+                    elementFrame: elementFrame,
+                    finalFrame: visibleRect,
+                    clippingAncestorCount: clippingAncestorCount)
+            }
+            guard self.hasPositiveArea(parentFrame) else {
+                return VisibilityProbeTelemetry(
+                    targetRef: normalizedReference,
+                    status: .notVisible,
+                    reason: "non_positive_clipping_frame:\(currentReference)",
+                    elementFrame: elementFrame,
+                    finalFrame: parentFrame,
+                    clippingAncestorCount: clippingAncestorCount)
+            }
+
+            visibleRect = visibleRect.intersection(parentFrame)
+            if visibleRect.isNull || visibleRect.isEmpty || !self.hasPositiveArea(visibleRect) {
+                return VisibilityProbeTelemetry(
+                    targetRef: normalizedReference,
+                    status: .notVisible,
+                    reason: "clipped_empty_by:\(currentReference)",
+                    elementFrame: elementFrame,
+                    finalFrame: nil,
+                    clippingAncestorCount: clippingAncestorCount)
+            }
+        }
+
+        if clippingAncestorCount == 0 {
+            return VisibilityProbeTelemetry(
+                targetRef: normalizedReference,
+                status: .unknown,
+                reason: "no_clipping_ancestors",
+                elementFrame: elementFrame,
+                finalFrame: visibleRect,
+                clippingAncestorCount: 0)
+        }
+
+        if let screenViewport = self.globalScreenViewport() {
+            visibleRect = visibleRect.intersection(screenViewport)
+            if visibleRect.isNull || visibleRect.isEmpty || !self.hasPositiveArea(visibleRect) {
+                return VisibilityProbeTelemetry(
+                    targetRef: normalizedReference,
+                    status: .notVisible,
+                    reason: "clipped_by_screen_viewport",
+                    elementFrame: elementFrame,
+                    finalFrame: nil,
+                    clippingAncestorCount: clippingAncestorCount)
+            }
+        }
+
+        if !self.meetsMinimumVisibleSize(visibleRect) {
+            return VisibilityProbeTelemetry(
+                targetRef: normalizedReference,
+                status: .unknown,
+                reason: "final_frame_below_minimum_size",
+                elementFrame: elementFrame,
+                finalFrame: visibleRect,
+                clippingAncestorCount: clippingAncestorCount)
+        }
+
+        return VisibilityProbeTelemetry(
+            targetRef: normalizedReference,
+            status: .visible,
+            reason: "visible_after_clip_intersections",
+            elementFrame: elementFrame,
+            finalFrame: visibleRect,
+            clippingAncestorCount: clippingAncestorCount)
+    }
+
+    private static func isClippingRole(_ role: String?) -> Bool {
+        role == AXRoleNames.kAXScrollAreaRole ||
+            role == AXRoleNames.kAXWindowRole ||
+            role == AXRoleNames.kAXWebAreaRole ||
+            role == AXRoleNames.kAXLayoutAreaRole ||
+            role == AXRoleNames.kAXSplitGroupRole
+    }
+
+    private static func hasPositiveArea(_ rect: CGRect) -> Bool {
+        rect.width > 0 && rect.height > 0
+    }
+
+    private static func meetsMinimumVisibleSize(_ rect: CGRect) -> Bool {
+        rect.width >= self.minimumVisibleDimension &&
+            rect.height >= self.minimumVisibleDimension &&
+            (rect.width * rect.height) >= self.minimumVisibleArea
+    }
+
+    private static func globalScreenViewport() -> CGRect? {
+        let frames = NSScreen.screens.map(\.frame)
+        guard let first = frames.first else {
+            return nil
+        }
+
+        return frames.dropFirst().reduce(first) { partialResult, frame in
+            partialResult.union(frame)
+        }
     }
 
     private static func preflightTargetElement(_ element: Element) {

@@ -204,7 +204,7 @@ struct AXORCCommand: ParsableCommand {
         }
 
         if let actionProgram = try self.buildActionProgramIfNeeded() {
-            try self.runActionMode(program: actionProgram)
+            try self.runActionMode(request: actionProgram)
             return
         }
 
@@ -304,7 +304,11 @@ struct AXORCCommand: ParsableCommand {
         }
     }
 
-    private mutating func buildActionProgramIfNeeded() throws -> String? {
+    private struct ActionProgramRequest {
+        let program: String
+    }
+
+    private mutating func buildActionProgramIfNeeded() throws -> ActionProgramRequest? {
         guard let actionProgram = self.actions?.trimmingCharacters(in: .whitespacesAndNewlines), !actionProgram.isEmpty else {
             return nil
         }
@@ -321,12 +325,12 @@ struct AXORCCommand: ParsableCommand {
             throw ValidationError("Action mode (--actions) cannot be combined with JSON input flags or payloads.")
         }
 
-        return actionProgram
+        return ActionProgramRequest(program: actionProgram)
     }
 
-    private mutating func runActionMode(program: String) throws {
+    private mutating func runActionMode(request: ActionProgramRequest) throws {
         do {
-            let output = try SelectorCacheDaemonClient().execute(actionsProgram: program)
+            let output = try SelectorCacheDaemonClient().execute(actionsProgram: request.program)
             print(output)
             fflush(stdout)
             axClearLogs()

@@ -392,6 +392,7 @@ private enum LiveSelectorQueryExecutor {
         let childrenByElement: [Element: [Element]]
         let parentByElement: [Element: Element]
         let roleByElement: [Element: String]
+        let frameByElement: [Element: CGRect]
         let attributeValuesByElement: [Element: [String: String]]
         let prefetchedAttributeNames: Set<String>
         let elementsByReference: [String: Element]
@@ -402,6 +403,12 @@ private enum LiveSelectorQueryExecutor {
         let maxDepth: Int
         let prefetchedAttributeNames: Set<String>
         let snapshot: SelectorPrefetchSnapshot
+    }
+
+    private struct SnapshotReferenceMetadata {
+        let frameByReference: [String: CGRect]
+        let parentReferenceByReference: [String: String]
+        let roleByReference: [String: String]
     }
 
     private static let cacheReferenceAttributeName = "__axorc_ref"
@@ -461,6 +468,7 @@ private enum LiveSelectorQueryExecutor {
         let matchedElements = evaluation.matches
 
         let actionElementsByReference = prefetchedSnapshot.elementsByReference
+        let referenceMetadata = self.referenceMetadata(from: prefetchedSnapshot)
         let shownElements = Array(matchedElements.prefix(request.limit))
         let shownSummaries = try shownElements.map { element in
             guard let reference = self.referenceForElement(element, snapshot: prefetchedSnapshot) else {
@@ -501,7 +509,10 @@ private enum LiveSelectorQueryExecutor {
         }
         SelectorActionRefStore.replace(
             with: actionElementsByReference,
-            appPID: rootPID > 0 ? rootPID : nil)
+            appPID: rootPID > 0 ? rootPID : nil,
+            frameByReference: referenceMetadata.frameByReference,
+            parentReferenceByReference: referenceMetadata.parentReferenceByReference,
+            roleByReference: referenceMetadata.roleByReference)
 
         return SelectorQueryResult(
             traversedCount: evaluation.traversedNodeCount,
@@ -667,6 +678,8 @@ private enum LiveSelectorQueryExecutor {
             AXAttributeNames.kAXSubroleAttribute,
             AXAttributeNames.kAXPIDAttribute,
             AXAttributeNames.kAXRoleDescriptionAttribute,
+            AXAttributeNames.kAXPositionAttribute,
+            AXAttributeNames.kAXSizeAttribute,
         ]
 
         for selector in syntaxTree.selectors {
@@ -743,6 +756,7 @@ private enum LiveSelectorQueryExecutor {
         var childrenByElement: [Element: [Element]] = [:]
         var parentByElement: [Element: Element] = [:]
         var roleByElement: [Element: String] = [:]
+        var frameByElement: [Element: CGRect] = [:]
         var attributeValuesByElement: [Element: [String: String]] = [:]
         var bestDepthByElement: [Element: Int] = [:]
         var elementsByReference: [String: Element] = [:]
@@ -758,25 +772,32 @@ private enum LiveSelectorQueryExecutor {
                 elementsByReference: &elementsByReference,
                 generatedReferences: &generatedReferences)
 
-            if let parent = entry.parent {
-                parentByElement[element] = parent
-            }
-
             if let bestDepth = bestDepthByElement[element], depth >= bestDepth {
                 continue
             }
 
             bestDepthByElement[element] = depth
 
-            let prefetchedAttributes = self.batchFetchAttributeValues(
+            if let parent = entry.parent {
+                parentByElement[element] = parent
+            } else {
+                parentByElement.removeValue(forKey: element)
+            }
+
+            let prefetched = self.batchFetchAttributeValues(
                 for: element,
                 attributeNames: orderedAttributeNames)
+            let prefetchedAttributes = prefetched.stringValues
             var attributes = attributeValuesByElement[element] ?? [:]
             if !prefetchedAttributes.isEmpty {
                 attributes.merge(prefetchedAttributes) { _, new in new }
             }
             attributes[self.cacheReferenceAttributeName] = reference
             attributeValuesByElement[element] = attributes
+
+            if let frame = prefetched.frame {
+                frameByElement[element] = frame
+            }
 
             if let role = prefetchedAttributes[AXAttributeNames.kAXRoleAttribute] ??
                 self.stringValue(for: element, attributeName: AXAttributeNames.kAXRoleAttribute)
@@ -804,16 +825,27 @@ private enum LiveSelectorQueryExecutor {
             childrenByElement: childrenByElement,
             parentByElement: parentByElement,
             roleByElement: roleByElement,
+            frameByElement: frameByElement,
             attributeValuesByElement: attributeValuesByElement,
             prefetchedAttributeNames: attributeNames,
             elementsByReference: elementsByReference)
     }
 
+    private struct BatchFetchResult {
+        let stringValues: [String: String]
+        let frame: CGRect?
+    }
+
     private static func batchFetchAttributeValues(
         for element: Element,
-        attributeNames: [String]) -> [String: String]
+        attributeNames: [String]) -> BatchFetchResult
     {
-        guard !attributeNames.isEmpty else { return [:] }
+        guard !attributeNames.isEmpty else {
+            return BatchFetchResult(stringValues: [:], frame: nil)
+        }
+
+        let positionIndex = attributeNames.firstIndex(of: AXAttributeNames.kAXPositionAttribute)
+        let sizeIndex = attributeNames.firstIndex(of: AXAttributeNames.kAXSizeAttribute)
 
         let cfAttributeNames = attributeNames.map { $0 as CFString } as CFArray
         var values: CFArray?
@@ -830,7 +862,8 @@ private enum LiveSelectorQueryExecutor {
                     fallbackValues[name] = value
                 }
             }
-            return fallbackValues
+
+            return BatchFetchResult(stringValues: fallbackValues, frame: element.frame())
         }
 
         var result: [String: String] = [:]
@@ -851,7 +884,84 @@ private enum LiveSelectorQueryExecutor {
             }
         }
 
-        return result
+        let origin = positionIndex
+            .flatMap { $0 < rawValues.count ? self.extractPoint(from: rawValues[$0]) : nil }
+        let size = sizeIndex
+            .flatMap { $0 < rawValues.count ? self.extractSize(from: rawValues[$0]) : nil }
+        let frame = origin.flatMap { origin in
+            size.map { size in CGRect(origin: origin, size: size) }
+        } ?? element.frame()
+
+        return BatchFetchResult(stringValues: result, frame: frame)
+    }
+
+    private static func extractPoint(from value: Any) -> CGPoint? {
+        let object = value as AnyObject
+        let typeRef = object as CFTypeRef
+        guard CFGetTypeID(typeRef) == AXValueGetTypeID() else {
+            return nil
+        }
+
+        let axValue = unsafeDowncast(object, to: AXValue.self)
+        guard AXValueGetType(axValue) == .cgPoint else {
+            return nil
+        }
+
+        var point = CGPoint.zero
+        guard AXValueGetValue(axValue, .cgPoint, &point) else {
+            return nil
+        }
+        return point
+    }
+
+    private static func extractSize(from value: Any) -> CGSize? {
+        let object = value as AnyObject
+        let typeRef = object as CFTypeRef
+        guard CFGetTypeID(typeRef) == AXValueGetTypeID() else {
+            return nil
+        }
+
+        let axValue = unsafeDowncast(object, to: AXValue.self)
+        guard AXValueGetType(axValue) == .cgSize else {
+            return nil
+        }
+
+        var size = CGSize.zero
+        guard AXValueGetValue(axValue, .cgSize, &size) else {
+            return nil
+        }
+        return size
+    }
+
+    private static func referenceMetadata(from snapshot: SelectorPrefetchSnapshot) -> SnapshotReferenceMetadata {
+        var frameByReference: [String: CGRect] = [:]
+        var parentReferenceByReference: [String: String] = [:]
+        var roleByReference: [String: String] = [:]
+
+        for (reference, element) in snapshot.elementsByReference {
+            let normalizedReference = reference.lowercased()
+
+            if let frame = snapshot.frameByElement[element] {
+                frameByReference[normalizedReference] = frame
+            }
+
+            if let parent = snapshot.parentByElement[element],
+               let parentReference = snapshot.attributeValuesByElement[parent]?[self.cacheReferenceAttributeName]
+            {
+                parentReferenceByReference[normalizedReference] = parentReference.lowercased()
+            }
+
+            if let role = snapshot.roleByElement[element] ??
+                snapshot.attributeValuesByElement[element]?[AXAttributeNames.kAXRoleAttribute]
+            {
+                roleByReference[normalizedReference] = role
+            }
+        }
+
+        return SnapshotReferenceMetadata(
+            frameByReference: frameByReference,
+            parentReferenceByReference: parentReferenceByReference,
+            roleByReference: roleByReference)
     }
 
     private static func stringifyBatchAttributeValue(_ value: Any) -> String? {
