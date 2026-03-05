@@ -1,88 +1,67 @@
-## Non-Interactive Interactions
+## CLI Reference
 
-Run an action against one matched result by index:
+## Selector Query Mode
 
 ```bash
-axorc --app TextEdit --selector "AXButton[AXTitle*=\"Save\"]" \
-  --result-index 1 --interaction click
+axorc --app <target> --selector "<query>" [options]
 ```
 
-Supported `--interaction` values:
+Common options:
 
-- `click`
-- `press`
-- `focus`
-- `set-value` (requires `--interaction-value`)
-- `send-keystrokes-submit` (requires `--interaction-value`)
+- `--max-depth <n>` limit traversal depth (`0` or omitted means unlimited)
+- `--limit <n>` max rows shown (`0` means no cap)
+- `--show-path` include generated path per result row
+- `--show-name-source` include computed name source
+- `--no-color` disable ANSI output
+- `--cache-session` route query through cache daemon and refresh snapshot
+- `--use-cached` route query through cache daemon and require warm snapshot
 
-Related flags:
-
-- `--result-index` is 1-based and required for interactions
-- `--submit-after-set-value` is valid only with `set-value`
-  - flow: click target -> set value -> press Return
-
-Implementation notes:
-
-- `send-keystrokes-submit` sends text, then submits with Command+Return.
-- click/focus flows can activate the owning app before action.
-
-## Interactive Mode (`-i`)
-
-Interactive mode runs in a full-screen TUI and requires a TTY.
-
-Main controls:
-
-- Query mode: type selector, `Enter` run, `q` clear
-- Results mode:
-  - move: `j`/`k`, arrows, `PageUp/PageDown`, `Ctrl+B/Ctrl+F`
-  - jump: `gg` top, `G` bottom
-  - search: `/`, then `n` / `N`
-  - `Enter` opens interaction menu
-  - `q` back to query editing
-- Interaction menu:
-  - `c` click
-  - `p` press
-  - `f` focus
-  - `v` set-value
-  - `s` set-value-submit
-  - `k` send-keystrokes-submit
-
-`-r` / `--refocus-terminal` can return focus to your terminal after click/focus/submit interactions.
-
-## Cache Session Mode
-
-For repeated queries on the same app/process:
+Example:
 
 ```bash
-# warm cache + query
+axorc --app TextEdit --selector "AXWindow AXButton" --limit 20 --show-path
+```
+
+## Interactive Selector Mode
+
+```bash
+axorc --app <target> -i
+# or
+axorc --app <target> --selector -i
+```
+
+Interactive mode opens a full-screen TUI for editing selectors, running queries, navigating results, and triggering inline actions.
+
+## OXA Action Mode
+
+Run OXA actions against cached references from a previous cache-daemon query.
+
+```bash
+# 1) Build/refresh snapshot and refs
 axorc --app TextEdit --selector "AXButton" --cache-session
 
-# reuse warm snapshot without refresh
-axorc --app TextEdit --selector "AXButton[AXTitle*=\"Save\"]" --use-cached
+# 2) Execute OXA program against ref ids from query output (ref=...)
+axorc --actions 'send click to 28e6a93cf;'
 ```
 
-Validation is strict when reusing cache:
+Notes:
 
-- same app PID
-- cached depth must be deep enough
-- cached attributes must cover selector requirements
-
-The cache daemon uses a per-user Unix socket under `/tmp` and exits after idle timeout.
+- Action mode cannot be combined with selector flags or `--enable-ax`.
+- If no warm snapshot exists, action mode fails with a cache-daemon error.
 
 ## AX Exposure Mode
-
-Some apps require explicit AX attribute toggles before rich tree access.
 
 ```bash
 axorc --enable-ax com.apple.TextEdit
 ```
 
-What it does:
+This temporarily focuses the app, applies `AXEnhancedUserInterface=true` and `AXManualAccessibility=true`, then restores previous focus.
 
-- finds a running process for the bundle id
-- focuses candidate app
-- sets:
-  - `AXEnhancedUserInterface = true`
-  - `AXManualAccessibility = true`
-- restores original frontmost app focus
-- prints one summary line (`ax_exposure ...`)
+## Logging And Help
+
+```bash
+axorc --help
+axorc help
+axorc --app focused --selector "AXWindow" --debug
+axorc --app focused --selector "AXWindow" --verbose
+```

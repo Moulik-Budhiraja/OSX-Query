@@ -113,24 +113,22 @@ Selector mode accepts:
 
 ### Option Reference (Public CLI)
 
+- `--app <target>`: target app for selector mode (bundle id, app name, PID, or `focused`).
+- `--selector <query>`: OXQ selector query.
+- `--actions <program>`: execute an OXA action program against cached refs.
 - `--max-depth <n>`: maximum selector traversal depth. Default is unlimited.
 - `--limit <n>`: max rows to print. Default `50`; `0` means no cap.
 - `--show-path`: include generated path for each shown match.
 - `--show-name-source`: include computed name source (for example `AXTitle`).
 - `--no-color`: disable ANSI role/status colors.
-- `--result-index <n>` + `--interaction <action>`: run an interaction against 1-based match index.
-- `--interaction-value <value>`: required for `set-value` and `send-keystrokes-submit`.
-- `--submit-after-set-value`: with `set-value`, click target, set value, then Return.
 - `--cache-session`: query through cache daemon and refresh warm snapshot.
 - `--use-cached`: query through cache daemon using existing warm snapshot only.
 - `-i`, `--interactive`: full-screen TUI selector workflow.
-- `-r`, `--refocus-terminal`: in interactive mode, return focus to terminal after focus-stealing actions.
 - `--enable-ax <bundle-id>`: run AX exposure flow.
 - `--debug`, `--verbose`: enable normal/verbose diagnostic logging.
-- `--timeout`, `--scan-all`, `--no-stop-first`: exposed traversal knobs wired to global search settings (`axorcTraversalTimeout`, `axorcScanAll`, `axorcStopAtFirstMatch`) used by legacy traversal paths.
 - `-h`, `--help` or `help`: print CLI usage.
 
-For full documentation, see [docs/cli-options.md](docs/cli-options.md).
+For full CLI documentation, see [docs/cli.md](docs/cli.md).
 
 ## Selector Syntax
 
@@ -152,8 +150,8 @@ axorc --app TextEdit --selector "AXTextArea, AXTextField, AXComboBox"
 Selector mode output format:
 
 - `stats ...` line (app, selector, elapsed, traversed, matched, shown)
-- optional interaction status line
 - numbered result rows (`[1] AXButton ...`)
+- optional `ref=...` tokens per row when refs are available (for OXA actions)
 - optional full path lines with `--show-path`
 
 Use:
