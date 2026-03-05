@@ -28,13 +28,12 @@ enum OXAExecutor {
     }
 
     private static let postPreflightDelaySeconds: TimeInterval = 0.1
-    private static let appActivationTimeoutSeconds: TimeInterval = 1.5
-    private static let appActivationPollIntervalSeconds: TimeInterval = 0.05
     private static let appleScriptActivationTimeoutSeconds: TimeInterval = 0.35
     private static let processPollIntervalSeconds: TimeInterval = 0.01
     private static let appLaunchWaitTimeoutSeconds: TimeInterval = 2.0
     private static let windowCreationWaitTimeoutSeconds: TimeInterval = 1.0
     private static let axScrollToVisibleAction = "AXScrollToVisible"
+    private static let emitClickVisibilityWarnings = false
     private static let clickVisibilityWarningText = "Warning: target element not visible, click success unknown"
     private static let minimumVisibleDimension: CGFloat = 2.0
     private static let minimumVisibleArea: CGFloat = 16.0
@@ -85,12 +84,9 @@ enum OXAExecutor {
         }
 
         if let snapshotAppPID = SelectorActionRefStore.snapshotAppPID, snapshotAppPID > 0 {
-            guard self.ensureApplicationFrontmost(pid: snapshotAppPID) else {
-                let details = self.lastActivationFailureDescription.map { " \($0)" } ?? ""
-                throw OXAActionError.runtime(
-                    "Failed to activate target app before executing actions. Keystrokes were not sent.\(details)")
+            if self.ensureApplicationFrontmost(pid: snapshotAppPID) {
+                Thread.sleep(forTimeInterval: self.postPreflightDelaySeconds)
             }
-            Thread.sleep(forTimeInterval: self.postPreflightDelaySeconds)
             return
         }
 
@@ -112,12 +108,9 @@ enum OXAExecutor {
             return
         }
 
-        guard self.ensureApplicationFrontmost(pid: owningPid) else {
-            let details = self.lastActivationFailureDescription.map { " \($0)" } ?? ""
-            throw OXAActionError.runtime(
-                "Failed to activate target app before executing actions. Keystrokes were not sent.\(details)")
+        if self.ensureApplicationFrontmost(pid: owningPid) {
+            Thread.sleep(forTimeInterval: self.postPreflightDelaySeconds)
         }
-        Thread.sleep(forTimeInterval: self.postPreflightDelaySeconds)
     }
 
     private static func elementReferencesRequiringActivation(in program: OXAProgram) -> [String] {
@@ -203,21 +196,33 @@ enum OXAExecutor {
 
         case let .sendClick(targetRef):
             let target = try self.resolveElementReference(targetRef)
-            let visibilityProbe = self.visibilityProbe(for: targetRef)
+            let warnings: [String]
+            if self.emitClickVisibilityWarnings {
+                let visibilityProbe = self.visibilityProbe(for: targetRef)
+                warnings = self.warningFromVisibilityProbe(visibilityProbe).map { [$0] } ?? []
+            } else {
+                warnings = []
+            }
             self.preflightTargetElement(target)
             try self.clickElementCenter(target)
             return StatementExecutionResult(
                 readOutput: nil,
-                warnings: self.warningFromVisibilityProbe(visibilityProbe).map { [$0] } ?? [])
+                warnings: warnings)
 
         case let .sendRightClick(targetRef):
             let target = try self.resolveElementReference(targetRef)
-            let visibilityProbe = self.visibilityProbe(for: targetRef)
+            let warnings: [String]
+            if self.emitClickVisibilityWarnings {
+                let visibilityProbe = self.visibilityProbe(for: targetRef)
+                warnings = self.warningFromVisibilityProbe(visibilityProbe).map { [$0] } ?? []
+            } else {
+                warnings = []
+            }
             self.preflightTargetElement(target)
             try self.clickElementCenter(target, button: .right)
             return StatementExecutionResult(
                 readOutput: nil,
-                warnings: self.warningFromVisibilityProbe(visibilityProbe).map { [$0] } ?? [])
+                warnings: warnings)
 
         case let .sendDrag(sourceRef, targetRef):
             let source = try self.resolveElementReference(sourceRef)
@@ -491,18 +496,9 @@ enum OXAExecutor {
         return role == AXRoleNames.kAXMenuRole || role == AXRoleNames.kAXMenuItemRole
     }
 
-    static func ensureApplicationFrontmost(pid: pid_t) -> Bool {
+    static func ensureApplicationFrontmost(pid: pid_t, targetBundleIdentifier: String? = nil) -> Bool {
         self.lastActivationFailureDescription = nil
-        return self.ensureApplicationFrontmost(
-            pid: pid,
-            timeout: self.appActivationTimeoutSeconds,
-            pollInterval: self.appActivationPollIntervalSeconds,
-            now: Date.init,
-            sleep: Thread.sleep,
-            activatePid: self.liveActivatePid,
-            frontmostPidProvider: self.liveFrontmostPid,
-            focusedPidProvider: self.liveFocusedApplicationPid,
-            axFrontmostProvider: self.liveAXFrontmost)
+        return self.liveActivatePid(pid)
     }
 
     static func ensureApplicationFrontmost(
@@ -514,62 +510,22 @@ enum OXAExecutor {
         activatePid: (pid_t) -> Bool,
         frontmostPidProvider: () -> pid_t?,
         focusedPidProvider: () -> pid_t?,
-        axFrontmostProvider: (pid_t) -> Bool) -> Bool
+        axFrontmostProvider: (pid_t) -> Bool,
+        targetBundleIdentifier: String? = nil,
+        frontmostBundleIdentifierProvider: () -> String? = { nil },
+        focusedBundleIdentifierProvider: () -> String? = { nil }) -> Bool
     {
-        let deadline = now().addingTimeInterval(timeout)
-        var lastActivation = Date.distantPast
-
-        while now() < deadline {
-            let current = now()
-            if current.timeIntervalSince(lastActivation) >= 0.2 {
-                _ = activatePid(pid)
-                lastActivation = current
-            }
-
-            if self.isTargetFrontmost(
-                pid: pid,
-                frontmostPidProvider: frontmostPidProvider,
-                focusedPidProvider: focusedPidProvider,
-                axFrontmostProvider: axFrontmostProvider)
-            {
-                return true
-            }
-
-            sleep(pollInterval)
-        }
-
-        return self.isTargetFrontmost(
-            pid: pid,
-            frontmostPidProvider: frontmostPidProvider,
-            focusedPidProvider: focusedPidProvider,
-            axFrontmostProvider: axFrontmostProvider)
-    }
-
-    private static func isTargetFrontmost(
-        pid: pid_t,
-        frontmostPidProvider: () -> pid_t?,
-        focusedPidProvider: () -> pid_t?,
-        axFrontmostProvider: (pid_t) -> Bool) -> Bool
-    {
-        let frontmostPid = frontmostPidProvider()
-        let focusedPid = focusedPidProvider()
-
-        // Workspace frontmost is the strongest signal when available.
-        if let frontmostPid {
-            return frontmostPid == pid
-        }
-
-        // Focused application is a fallback signal when workspace cannot provide one.
-        if let focusedPid {
-            if focusedPid == pid {
-                return true
-            }
-            // Focus can briefly lag app-switch transitions; AXFrontmost may already be updated.
-            return axFrontmostProvider(pid)
-        }
-
-        // Only trust AXFrontmost when other focus signals are unavailable.
-        return axFrontmostProvider(pid)
+        _ = timeout
+        _ = pollInterval
+        _ = now
+        _ = sleep
+        _ = frontmostPidProvider
+        _ = focusedPidProvider
+        _ = axFrontmostProvider
+        _ = targetBundleIdentifier
+        _ = frontmostBundleIdentifierProvider
+        _ = focusedBundleIdentifierProvider
+        return activatePid(pid)
     }
 
     private static func liveActivatePid(_ pid: pid_t) -> Bool {
@@ -592,36 +548,6 @@ enum OXAExecutor {
         }
 
         return false
-    }
-
-    private static func liveFrontmostPid() -> pid_t? {
-        NSWorkspace.shared.frontmostApplication?.processIdentifier
-    }
-
-    private static func liveFocusedApplicationPid() -> pid_t? {
-        guard let focused = try? AXUIElement.focusedApplication() else {
-            return nil
-        }
-
-        var pid: pid_t = 0
-        let status = AXUIElementGetPid(focused, &pid)
-        guard status == .success, pid > 0 else {
-            return nil
-        }
-        return pid
-    }
-
-    private static func liveAXFrontmost(_ pid: pid_t) -> Bool {
-        let appElement = AXUIElementCreateApplication(pid)
-        var value: CFTypeRef?
-        let status = AXUIElementCopyAttributeValue(
-            appElement,
-            AXAttributeNames.kAXFrontmostAttribute as CFString,
-            &value)
-        guard status == .success, let number = value as? NSNumber else {
-            return false
-        }
-        return number.boolValue
     }
 
     private static func activateViaAppleScript(_ app: NSRunningApplication) -> Bool {
@@ -999,7 +925,12 @@ enum OXAExecutor {
 
     private static func openApplication(_ applicationIdentifier: String) throws {
         if let runningApp = self.runningApplications(matching: applicationIdentifier).first(where: { !$0.isTerminated }) {
-            guard self.ensureApplicationFrontmost(pid: runningApp.processIdentifier) else {
+            let targetBundleIdentifier = runningApp.bundleIdentifier ??
+                (self.looksLikeBundleIdentifier(applicationIdentifier) ? applicationIdentifier : nil)
+            guard self.ensureApplicationFrontmost(
+                pid: runningApp.processIdentifier,
+                targetBundleIdentifier: targetBundleIdentifier)
+            else {
                 let details = self.lastActivationFailureDescription.map { " \($0)" } ?? ""
                 throw OXAActionError.runtime("Failed to activate '\(applicationIdentifier)'.\(details)")
             }
@@ -1038,7 +969,12 @@ enum OXAExecutor {
             return
         }
 
-        guard self.ensureApplicationFrontmost(pid: launchedApp.processIdentifier) else {
+        let targetBundleIdentifier = launchedApp.bundleIdentifier ??
+            (self.looksLikeBundleIdentifier(applicationIdentifier) ? applicationIdentifier : nil)
+        guard self.ensureApplicationFrontmost(
+            pid: launchedApp.processIdentifier,
+            targetBundleIdentifier: targetBundleIdentifier)
+        else {
             let details = self.lastActivationFailureDescription.map { " \($0)" } ?? ""
             throw OXAActionError.runtime("Launched '\(applicationIdentifier)' but failed to activate it.\(details)")
         }
