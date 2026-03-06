@@ -122,7 +122,8 @@ enum LiveSelectorQueryExecutor {
                 path: request.showPath
                     ? SelectorMatchSummary.normalize(self.cachedPathString(for: element, snapshot: prefetchedSnapshot))
                     : nil,
-                reference: reference)
+                reference: reference,
+                ancestry: self.ancestry(for: element, snapshot: prefetchedSnapshot))
         }
         SelectorActionRefStore.replace(
             with: actionElementsByReference,
@@ -626,6 +627,55 @@ enum LiveSelectorQueryExecutor {
 
             return parts.joined(separator: ", ")
         }.joined(separator: " -> ")
+    }
+
+    private static func ancestry(for element: Element, snapshot: SelectorPrefetchSnapshot) -> [SelectorTreeNodeSummary] {
+        var chain: [Element] = []
+        var visited = Set<Element>()
+        var current: Element? = element
+
+        while let node = current, visited.insert(node).inserted {
+            chain.append(node)
+            current = snapshot.parentByElement[node]
+        }
+
+        return chain.reversed().compactMap { node in
+            guard let reference = snapshot.attributeValuesByElement[node]?[self.cacheReferenceAttributeName] else {
+                return nil
+            }
+            let attributes = snapshot.attributeValuesByElement[node] ?? [:]
+            return SelectorTreeNodeSummary(
+                reference: reference,
+                role: snapshot.roleByElement[node] ??
+                    attributes[AXAttributeNames.kAXRoleAttribute] ??
+                    "AXUnknown",
+                computedName: SelectorMatchSummary.normalize(self.cachedComputedName(for: node, attributes: attributes)),
+                title: SelectorMatchSummary.normalize(attributes[AXAttributeNames.kAXTitleAttribute]),
+                value: SelectorMatchSummary.normalize(
+                    attributes[AXAttributeNames.kAXValueAttribute] ??
+                        attributes[AXAttributeNames.kAXSelectedTextAttribute]),
+                identifier: SelectorMatchSummary.normalize(attributes[AXAttributeNames.kAXIdentifierAttribute]))
+        }
+    }
+
+    private static func cachedComputedName(for element: Element, attributes: [String: String]) -> String? {
+        let candidates = [
+            attributes[AXAttributeNames.kAXTitleAttribute],
+            attributes[AXAttributeNames.kAXValueAttribute],
+            attributes[AXAttributeNames.kAXDescriptionAttribute],
+            attributes[AXAttributeNames.kAXPlaceholderValueAttribute],
+            attributes[AXAttributeNames.kAXIdentifierAttribute],
+            attributes[AXAttributeNames.kAXSelectedTextAttribute],
+        ]
+
+        for candidate in candidates {
+            if let normalized = SelectorMatchSummary.normalize(candidate) {
+                return normalized
+            }
+        }
+
+        let computedNameDetails = element.computedNameDetails()
+        return SelectorMatchSummary.normalize(computedNameDetails?.value)
     }
 
     private static func parseBool(_ value: String?) -> Bool? {

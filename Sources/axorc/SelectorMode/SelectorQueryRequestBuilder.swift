@@ -13,6 +13,8 @@ enum SelectorQueryRequestBuilder {
         noColor: Bool,
         showPath: Bool,
         showNameSource: Bool = false,
+        tree: Bool = false,
+        treeFull: Bool = false,
         cacheSession: Bool = false,
         useCached: Bool = false,
         hasStructuredInput: Bool,
@@ -50,6 +52,15 @@ enum SelectorQueryRequestBuilder {
             resolvedLimit = defaultLimit
         }
 
+        let treeMode: SelectorTreeMode
+        if treeFull {
+            treeMode = .full
+        } else if tree {
+            treeMode = .compact
+        } else {
+            treeMode = .none
+        }
+
         return SelectorQueryRequest(
             appIdentifier: trimmedApp!,
             selector: trimmedSelector!,
@@ -58,6 +69,7 @@ enum SelectorQueryRequestBuilder {
             colorEnabled: stdoutSupportsANSI && !noColor,
             showPath: showPath,
             showNameSource: showNameSource,
+            treeMode: treeMode,
             cacheSessionEnabled: cacheSession || useCached,
             useCachedSnapshot: useCached)
     }

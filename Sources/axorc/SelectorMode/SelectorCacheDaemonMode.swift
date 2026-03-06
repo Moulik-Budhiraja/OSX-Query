@@ -293,6 +293,7 @@ private struct SelectorCacheDaemonPayload: Codable {
     let colorEnabled: Bool
     let showPath: Bool
     let showNameSource: Bool
+    let treeMode: SelectorTreeMode
     let useCachedSnapshot: Bool
 
     init(request: SelectorQueryRequest) {
@@ -303,6 +304,7 @@ private struct SelectorCacheDaemonPayload: Codable {
         self.colorEnabled = request.colorEnabled
         self.showPath = request.showPath
         self.showNameSource = request.showNameSource
+        self.treeMode = request.treeMode
         self.useCachedSnapshot = request.useCachedSnapshot
     }
 
@@ -315,6 +317,7 @@ private struct SelectorCacheDaemonPayload: Codable {
             colorEnabled: self.colorEnabled,
             showPath: self.showPath,
             showNameSource: self.showNameSource,
+            treeMode: self.treeMode,
             cacheSessionEnabled: true,
             useCachedSnapshot: self.useCachedSnapshot)
     }

@@ -150,14 +150,18 @@ axorc --app TextEdit --selector "AXTextArea, AXTextField, AXComboBox"
 Selector mode output format:
 
 - `stats ...` line (app, selector, elapsed, traversed, matched, shown)
-- numbered result rows (`[1] AXButton ...`)
+- result rows (`AXButton ...`)
 - optional `ref=...` tokens per row when refs are available (for OXA actions)
 - optional full path lines with `--show-path`
+- compact tree rendering with `--tree` to show matched nodes only
+- full inferred-ancestor tree rendering with `--tree-full`
 
 Use:
 
 - `--show-name-source` to include where computed name came from (for example `AXTitle`)
 - `--no-color` to disable ANSI output
+- `--tree` to render selector matches with compact matched-only branches (`└●─` marks collapsed unmatched intermediates)
+- `--tree-full` to render the full inferred ancestor chain
 
 ## Library Usage (Swift)
 

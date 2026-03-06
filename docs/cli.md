@@ -12,6 +12,8 @@ Common options:
 - `--limit <n>` max rows shown (`0` means no cap)
 - `--show-path` include generated path per result row
 - `--show-name-source` include computed name source
+- `--tree` render selector matches as a compact matched-only tree
+- `--tree-full` render selector matches as a full tree with inferred unmatched ancestors
 - `--no-color` disable ANSI output
 - `--cache-session` route query through cache daemon and refresh snapshot
 - `--use-cached` route query through cache daemon and require warm snapshot

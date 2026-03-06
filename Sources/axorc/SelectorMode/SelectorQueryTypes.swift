@@ -41,6 +41,7 @@ struct SelectorQueryRequest: Equatable {
     let colorEnabled: Bool
     let showPath: Bool
     let showNameSource: Bool
+    let treeMode: SelectorTreeMode
     let cacheSessionEnabled: Bool
     let useCachedSnapshot: Bool
 
@@ -52,6 +53,7 @@ struct SelectorQueryRequest: Equatable {
         colorEnabled: Bool,
         showPath: Bool,
         showNameSource: Bool = false,
+        treeMode: SelectorTreeMode = .none,
         cacheSessionEnabled: Bool = false,
         useCachedSnapshot: Bool = false)
     {
@@ -62,9 +64,16 @@ struct SelectorQueryRequest: Equatable {
         self.colorEnabled = colorEnabled
         self.showPath = showPath
         self.showNameSource = showNameSource
+        self.treeMode = treeMode
         self.cacheSessionEnabled = cacheSessionEnabled
         self.useCachedSnapshot = useCachedSnapshot
     }
+}
+
+enum SelectorTreeMode: String, Equatable, Codable {
+    case none
+    case compact
+    case full
 }
 
 struct SelectorQueryExecutionReport: Equatable {
@@ -108,6 +117,30 @@ struct SelectorQueryResult: Equatable {
     }
 }
 
+struct SelectorTreeNodeSummary: Equatable {
+    let reference: String
+    let role: String
+    let computedName: String?
+    let title: String?
+    let value: String?
+    let identifier: String?
+
+    var displayLabel: String {
+        var parts: [String] = [self.role]
+        if let name = SelectorMatchSummary.normalize(self.computedName) {
+            parts.append("name=\"\(name)\"")
+        } else if let title = SelectorMatchSummary.normalize(self.title) {
+            parts.append("title=\"\(title)\"")
+        } else if let value = SelectorMatchSummary.normalize(self.value) {
+            parts.append("value=\"\(value)\"")
+        }
+        if let identifier = SelectorMatchSummary.normalize(self.identifier) {
+            parts.append("id=\"\(identifier)\"")
+        }
+        return parts.joined(separator: " ")
+    }
+}
+
 struct SelectorMatchSummary: Equatable {
     let role: String
     let computedName: String?
@@ -121,6 +154,7 @@ struct SelectorMatchSummary: Equatable {
     let descriptionText: String?
     let path: String?
     let reference: String?
+    let ancestry: [SelectorTreeNodeSummary]
 
     var resultDisplayName: String? {
         if self.role == AXRoleNames.kAXStaticTextRole, let value = self.value {
@@ -156,7 +190,8 @@ struct SelectorMatchSummary: Equatable {
         identifier: String?,
         descriptionText: String?,
         path: String?,
-        reference: String? = nil)
+        reference: String? = nil,
+        ancestry: [SelectorTreeNodeSummary] = [])
     {
         self.role = role
         self.computedName = computedName
@@ -170,6 +205,7 @@ struct SelectorMatchSummary: Equatable {
         self.descriptionText = descriptionText
         self.path = path
         self.reference = reference
+        self.ancestry = ancestry
     }
 
     @MainActor
@@ -193,6 +229,7 @@ struct SelectorMatchSummary: Equatable {
         self.descriptionText = SelectorMatchSummary.normalize(element.descriptionText())
         self.path = includePath ? SelectorMatchSummary.normalize(element.generatePathString()) : nil
         self.reference = nil
+        self.ancestry = []
     }
 
     static func normalize(_ value: String?) -> String? {

@@ -69,6 +69,12 @@ struct AXORCCommand: ParsableCommand {
     @Flag(name: .customLong("show-name-source"), help: "Include computed name source (e.g. AXTitle) per selector match.")
     var showNameSource: Bool = false
 
+    @Flag(name: .customLong("tree"), help: "Render selector matches as a tree using inferred ancestors where needed.")
+    var tree: Bool = false
+
+    @Flag(name: .customLong("tree-full"), help: "Render selector matches as a full tree including inferred unmatched ancestors.")
+    var treeFull: Bool = false
+
     @Flag(
         name: .customLong("cache-session"),
         help: "Use a background daemon to reuse the last prefetched tree across selector CLI calls.")
@@ -158,7 +164,7 @@ struct AXORCCommand: ParsableCommand {
         let hasApp = !(self.app?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         let hasSelector = !(self.selector?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         return hasApp || hasSelector || self.selectorMaxDepth != nil || self.limit != nil || self.noColor ||
-            self.showPath || self.showNameSource || self.interactive || self.cacheSession || self.useCached
+            self.showPath || self.showNameSource || self.tree || self.treeFull || self.interactive || self.cacheSession || self.useCached
     }
 
     private mutating func buildAXExposureRequestIfNeeded() throws -> AXExposureRequest? {
@@ -259,6 +265,8 @@ struct AXORCCommand: ParsableCommand {
                 noColor: self.noColor,
                 showPath: self.showPath,
                 showNameSource: self.showNameSource,
+                tree: self.tree,
+                treeFull: self.treeFull,
                 cacheSession: self.cacheSession,
                 useCached: self.useCached,
                 hasStructuredInput: false,
@@ -332,6 +340,8 @@ extension AXORCCommand {
         self.noColor = parsedValues.flags.contains("noColor")
         self.showPath = parsedValues.flags.contains("showPath")
         self.showNameSource = parsedValues.flags.contains("showNameSource")
+        self.tree = parsedValues.flags.contains("tree")
+        self.treeFull = parsedValues.flags.contains("treeFull")
         self.cacheSession = parsedValues.flags.contains("cacheSession")
         self.useCached = parsedValues.flags.contains("useCached")
         self.interactive = parsedValues.flags.contains("interactive")

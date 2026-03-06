@@ -65,6 +65,8 @@ Most useful query options:
 - `--use-cached`: run query against warm snapshot (no refresh).
 - `--show-path`: include full path for disambiguation.
 - `--show-name-source`: show computed-name source.
+- `--tree`: compact matched-only tree view. Prefer this when you need structural context.
+- `--tree-full`: full inferred-ancestor tree view. Use this only when `--tree` is not enough and you are stuck on missing containment context.
 - `--max-depth <n>`: optional traversal cap, use sparingly.
 
 Targeting tips:
@@ -151,3 +153,5 @@ Query posture:
 - Start broad, then narrow with role + `CPName` + context.
 - Verify candidate sets before acting (`--limit`, then `--show-path` if needed).
 - Keep using `--use-cached` until an action or UI change occurs.
+- Prefer `--tree` over `--tree-full` when you want hierarchy. Compact matched-only output is usually enough and avoids unrelated wrapper nodes.
+- Escalate to `--tree-full` only if compact output still leaves the parent/descendant relationship ambiguous enough that you cannot proceed confidently.

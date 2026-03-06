@@ -69,7 +69,7 @@ struct SelectorQueryOutputFormatterTests {
         #expect(lines[0].contains("matched=2"))
         #expect(lines[0].contains("shown=2"))
 
-        #expect(lines[1].contains("[1] AXButton"))
+        #expect(lines[1].contains("AXButton"))
         #expect(lines[1].contains("ref=28e6a93cf"))
         #expect(lines[1].contains("name=\"Save\""))
         #expect(!lines[1].contains("name_source=\""))
@@ -80,7 +80,7 @@ struct SelectorQueryOutputFormatterTests {
         #expect(lines[1].contains("disabled"))
         #expect(!lines[1].contains("children="))
 
-        #expect(lines[2].contains("[2] AXTextField"))
+        #expect(lines[2].contains("AXTextField"))
         #expect(lines[2].contains("name=\"Query\""))
         #expect(!lines[2].contains("name_source=\""))
         #expect(lines[2].contains("value=\"line1 line2\""))
@@ -341,6 +341,136 @@ struct SelectorQueryOutputFormatterTests {
         #expect(!output.contains("value=\""))
         #expect(!output.contains("id=\""))
         #expect(!output.contains("desc=\""))
+    }
+
+    @Test("Formats compact tree output with skipped descendants")
+    func formatsCompactTreeOutputWithSkippedDescendants() {
+        let request = SelectorQueryRequest(
+            appIdentifier: "com.apple.TextEdit",
+            selector: "AXButton, AXStaticText",
+            maxDepth: 10,
+            limit: 10,
+            colorEnabled: false,
+            showPath: false,
+            treeMode: .compact)
+
+        let report = SelectorQueryExecutionReport(
+            request: request,
+            elapsedMilliseconds: 3,
+            traversedCount: 12,
+            matchedCount: 2,
+            shownCount: 2,
+            results: [
+                SelectorMatchSummary(
+                    role: "AXButton",
+                    computedName: "Save",
+                    computedNameSource: "AXTitle",
+                    isEnabled: true,
+                    isFocused: false,
+                    childCount: 0,
+                    title: "Save",
+                    value: nil,
+                    identifier: "save-button",
+                    descriptionText: nil,
+                    path: nil,
+                    reference: "button-1",
+                    ancestry: [
+                        SelectorTreeNodeSummary(reference: "app-1", role: "AXApplication", computedName: "TextEdit", title: "TextEdit", value: nil, identifier: nil),
+                        SelectorTreeNodeSummary(reference: "window-1", role: "AXWindow", computedName: "Document", title: "Document", value: nil, identifier: nil),
+                        SelectorTreeNodeSummary(reference: "button-1", role: "AXButton", computedName: "Save", title: "Save", value: nil, identifier: "save-button"),
+                    ]),
+                SelectorMatchSummary(
+                    role: "AXStaticText",
+                    computedName: "Done",
+                    computedNameSource: "AXValue",
+                    isEnabled: true,
+                    isFocused: false,
+                    childCount: 0,
+                    title: nil,
+                    value: "Done",
+                    identifier: nil,
+                    descriptionText: nil,
+                    path: nil,
+                    reference: "text-1",
+                    ancestry: [
+                        SelectorTreeNodeSummary(reference: "app-1", role: "AXApplication", computedName: "TextEdit", title: "TextEdit", value: nil, identifier: nil),
+                        SelectorTreeNodeSummary(reference: "window-1", role: "AXWindow", computedName: "Document", title: "Document", value: nil, identifier: nil),
+                        SelectorTreeNodeSummary(reference: "button-1", role: "AXButton", computedName: "Save", title: "Save", value: nil, identifier: "save-button"),
+                        SelectorTreeNodeSummary(reference: "group-1", role: "AXGroup", computedName: nil, title: nil, value: nil, identifier: "group-1"),
+                        SelectorTreeNodeSummary(reference: "text-1", role: "AXStaticText", computedName: "Done", title: nil, value: "Done", identifier: nil),
+                    ]),
+            ])
+
+        let output = SelectorQueryOutputFormatter.format(report: report)
+
+        #expect(!output.contains("AXWindow name=\"Document\""))
+        #expect(!output.contains("AXGroup id=\"group-1\""))
+        #expect(output.contains("AXButton ref=button-1 name=\"Save\" id=\"save-button\""))
+        #expect(output.contains("└●─ AXStaticText ref=text-1 name=\"Done\""))
+    }
+
+    @Test("Formats full tree output with inferred ancestors")
+    func formatsFullTreeOutputWithInferredAncestors() {
+        let request = SelectorQueryRequest(
+            appIdentifier: "com.apple.TextEdit",
+            selector: "AXButton, AXStaticText",
+            maxDepth: 10,
+            limit: 10,
+            colorEnabled: false,
+            showPath: false,
+            treeMode: .full)
+
+        let report = SelectorQueryExecutionReport(
+            request: request,
+            elapsedMilliseconds: 3,
+            traversedCount: 12,
+            matchedCount: 2,
+            shownCount: 2,
+            results: [
+                SelectorMatchSummary(
+                    role: "AXButton",
+                    computedName: "Save",
+                    computedNameSource: "AXTitle",
+                    isEnabled: true,
+                    isFocused: false,
+                    childCount: 0,
+                    title: "Save",
+                    value: nil,
+                    identifier: "save-button",
+                    descriptionText: nil,
+                    path: nil,
+                    reference: "button-1",
+                    ancestry: [
+                        SelectorTreeNodeSummary(reference: "app-1", role: "AXApplication", computedName: "TextEdit", title: "TextEdit", value: nil, identifier: nil),
+                        SelectorTreeNodeSummary(reference: "window-1", role: "AXWindow", computedName: "Document", title: "Document", value: nil, identifier: nil),
+                        SelectorTreeNodeSummary(reference: "button-1", role: "AXButton", computedName: "Save", title: "Save", value: nil, identifier: "save-button"),
+                    ]),
+                SelectorMatchSummary(
+                    role: "AXStaticText",
+                    computedName: "Done",
+                    computedNameSource: "AXValue",
+                    isEnabled: true,
+                    isFocused: false,
+                    childCount: 0,
+                    title: nil,
+                    value: "Done",
+                    identifier: nil,
+                    descriptionText: nil,
+                    path: nil,
+                    reference: "text-1",
+                    ancestry: [
+                        SelectorTreeNodeSummary(reference: "app-1", role: "AXApplication", computedName: "TextEdit", title: "TextEdit", value: nil, identifier: nil),
+                        SelectorTreeNodeSummary(reference: "window-1", role: "AXWindow", computedName: "Document", title: "Document", value: nil, identifier: nil),
+                        SelectorTreeNodeSummary(reference: "group-1", role: "AXGroup", computedName: nil, title: nil, value: nil, identifier: "group-1"),
+                        SelectorTreeNodeSummary(reference: "text-1", role: "AXStaticText", computedName: "Done", title: nil, value: "Done", identifier: nil),
+                    ]),
+            ])
+
+        let output = SelectorQueryOutputFormatter.format(report: report)
+
+        #expect(output.contains("AXWindow name=\"Document\""))
+        #expect(output.contains("└── AXGroup id=\"group-1\""))
+        #expect(output.contains("└── AXStaticText ref=text-1 name=\"Done\""))
     }
 
     private func leadingColorCode(in line: String) -> String? {

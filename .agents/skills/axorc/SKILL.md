@@ -39,3 +39,13 @@ Screenshot file handling:
 Execution blockers:
 - If screenshot evidence does not clearly confirm the intended target, stop and re-query before acting.
 - If post-action screenshots do not match expected outcomes, stop, reassess, and do not chain further actions blindly.
+
+## Query Output Guidance
+
+Prefer compact tree output first when tree structure is useful:
+- Use `--tree` by default to show only matched nodes.
+- In compact tree output, `├●─` / `└●─` mean unmatched intermediate nodes were collapsed.
+
+Treat full tree output as an escalation path, not a default:
+- Use `--tree-full` only when the compact view is insufficient and you are stuck on ancestor/containment ambiguity.
+- Do not reach for `--tree-full` just to browse. It adds a lot of unmatched wrapper noise and should be reserved for cases where the extra context is necessary to unblock targeting or verification.

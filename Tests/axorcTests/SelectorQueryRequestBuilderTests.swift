@@ -116,6 +116,41 @@ struct SelectorQueryRequestBuilderTests {
         #expect(request?.showNameSource == true)
     }
 
+    @Test("Enables tree output when --tree is set")
+    func enablesTreeOutput() throws {
+        let request = try SelectorQueryRequestBuilder.build(
+            app: "com.apple.TextEdit",
+            selector: "AXButton",
+            maxDepth: nil,
+            limit: nil,
+            noColor: true,
+            showPath: false,
+            showNameSource: false,
+            tree: true,
+            hasStructuredInput: false,
+            stdoutSupportsANSI: true)
+
+        #expect(request?.treeMode == .compact)
+    }
+
+    @Test("Enables full tree output when --tree-full is set")
+    func enablesFullTreeOutput() throws {
+        let request = try SelectorQueryRequestBuilder.build(
+            app: "com.apple.TextEdit",
+            selector: "AXButton",
+            maxDepth: nil,
+            limit: nil,
+            noColor: true,
+            showPath: false,
+            showNameSource: false,
+            tree: false,
+            treeFull: true,
+            hasStructuredInput: false,
+            stdoutSupportsANSI: true)
+
+        #expect(request?.treeMode == .full)
+    }
+
     @Test("Enables cache session when --cache-session is set")
     func enablesCacheSessionFlag() throws {
         let request = try SelectorQueryRequestBuilder.build(
