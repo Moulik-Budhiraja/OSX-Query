@@ -3,9 +3,29 @@ name: CI
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'Sources/**'
+      - 'Tests/**'
+      - 'Package.swift'
+      - 'Package.resolved'
+      - 'Makefile'
+      - '.swiftformat'
+      - '.swiftlint.yml'
+      - 'Formula/**'
+      - '.github/workflows/ci.yml'
   pull_request:
     branches: [ main ]
     types: [opened, synchronize, reopened]
+    paths:
+      - 'Sources/**'
+      - 'Tests/**'
+      - 'Package.swift'
+      - 'Package.resolved'
+      - 'Makefile'
+      - '.swiftformat'
+      - '.swiftlint.yml'
+      - 'Formula/**'
+      - '.github/workflows/ci.yml'
   workflow_dispatch:
     inputs:
       reason:
