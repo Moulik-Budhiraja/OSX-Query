@@ -86,6 +86,10 @@ npm i -g osx-query
 
 The npm package downloads the signed and notarized native binary for the current macOS architecture from GitHub Releases.
 
+## Acknowledgment
+
+OSXQuery builds on core architectural ideas established in Peter Steinberger's [AXorcist](https://github.com/steipete/AXorcist) library.
+
 ## Build And Run
 
 ```bash
