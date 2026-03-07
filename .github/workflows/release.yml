@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to build (for example v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  SWIFT_VERSION: "6.2.1"
+  XCODE_VERSION: "16.4"
+
+jobs:
+  build-release:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+      NOTARIZE: "1"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      - name: Install Swift toolchain
+        uses: SwiftyLab/setup-swift@v1
+        with:
+          swift-version: ${{ env.SWIFT_VERSION }}
+
+      - name: Import Developer ID certificate
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/release.keychain-db"
+          CERT_PATH="$RUNNER_TEMP/developer-id.p12"
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          cert_b64 = os.environ["MACOS_CERTIFICATE_P12"]
+          cert_path = Path(os.environ["RUNNER_TEMP"]) / "developer-id.p12"
+          cert_path.write_bytes(base64.b64decode(cert_b64))
+          PY
+          security create-keychain -p "" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security default-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "" "$KEYCHAIN_PATH"
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build, sign, and notarize
+        run: |
+          chmod +x scripts/sign.sh scripts/notarize.sh scripts/release-macos.sh
+          scripts/release-macos.sh "${{ steps.version.outputs.value }}"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.value }}
+          files: |
+            dist/${{ steps.version.outputs.value }}/osx-${{ steps.version.outputs.value }}-arm64.zip
+            dist/${{ steps.version.outputs.value }}/osx-${{ steps.version.outputs.value }}-x86_64.zip

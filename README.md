@@ -55,6 +55,27 @@ brew install --HEAD moulik-budhiraja/osx-query/osx
 
 Note: because there are currently no git tags, the formula is head-only and tracks `main`.
 
+### Signed Release Archives
+
+For tagged releases, the repo can also produce signed macOS archives for `arm64` and `x86_64`.
+
+Local release build:
+
+```bash
+make release-macos VERSION=v0.1.0
+```
+
+Local release build plus notarization:
+
+```bash
+APPLE_ID="your-apple-id@example.com" \
+APPLE_APP_SPECIFIC_PASSWORD="app-specific-password" \
+APPLE_TEAM_ID="TEAMID1234" \
+make release-macos-notarized VERSION=v0.1.0
+```
+
+See [docs/releasing.md](docs/releasing.md) for the full release setup, including GitHub Actions secrets.
+
 ## Build And Run
 
 ```bash

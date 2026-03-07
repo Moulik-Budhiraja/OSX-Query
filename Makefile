@@ -5,6 +5,7 @@ BINARY_NAME = osx
 UNIVERSAL_BINARY_PATH = ./$(BINARY_NAME)
 RELEASE_BUILD_DIR := ./.build/arm64-apple-macosx/release
 RELEASE_BUILD_DIR_X86 := ./.build/x86_64-apple-macosx/release
+VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null)
 
 # Build for arm64 and x86_64, then lipo them together
 # -Xswiftc -Osize: Optimize for size
@@ -34,6 +35,14 @@ clean:
 	swift package clean
 	rm -f $(UNIVERSAL_BINARY_PATH)
 	@echo "Clean complete."
+
+release-macos:
+	@if [ -z "$(VERSION)" ]; then echo "VERSION is required (example: make release-macos VERSION=v0.1.0)"; exit 1; fi
+	./scripts/release-macos.sh $(VERSION)
+
+release-macos-notarized:
+	@if [ -z "$(VERSION)" ]; then echo "VERSION is required (example: make release-macos-notarized VERSION=v0.1.0)"; exit 1; fi
+	NOTARIZE=1 ./scripts/release-macos.sh $(VERSION)
 
 # Format code with SwiftFormat
 format:
