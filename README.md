@@ -1,275 +1,103 @@
 # OSXQuery
 
-OSXQuery is a macOS UI query language and CLI for inspecting and interacting with Accessibility trees.
+OSXQuery is a macOS CLI for querying and interacting with Accessibility trees with a css-like query language.
 
-## What This Does
+It is built for fast UI inspection and automation by agents from the terminal, with a selector-driven query language and an action language for sending input to matched elements.
 
-OSXQuery gives you a selector-driven way to:
+## Overview
 
-- Query a running app's Accessibility tree with CSS-like selectors.
-- Filter by role, attributes, and structure (child/descendant relationships).
-- Use pseudo-classes like `:has(...)` and `:not(...)`.
-- Run interactions on matched results (`click`, `press`, `focus`, `set-value`, submit flows).
-- Explore results interactively in a full-screen terminal TUI.
-- Warm and reuse prefetched snapshots for faster repeated queries.
-- Force-enable `AXEnhancedUserInterface` and `AXManualAccessibility` on a running app when needed.
-
-## Why We Made It
-
-The current architecture is optimized around three practical goals:
-
-1. Faster, clearer UI targeting
-   OSXQuery replaces verbose locator-style matching with a compact selector language (`OXQParser`, `OXQSelectorEngine`).
-
-2. Better human workflow
-   There is a dedicated interactive selector mode (`-i`) with query editing, result navigation, search, and inline interactions.
-
-3. Lower latency for repeated automation
-   Selector execution prefetches attributes in batches and supports daemon-backed warm snapshots (`--cache-session`, `--use-cached`).
-
-## Requirements
-
-- macOS 14+
-- Swift 6.2 toolchain
-- Accessibility permissions for the process running `osx`
+- Query running apps with a compact selector syntax
+- Inspect results from the focused app, app name, bundle id, or PID
+- Reuse cached snapshots for faster repeated queries
+- Send actions like click, text entry, hotkeys, scroll, and drag
+- Explore the tree interactively in a full-screen TUI
 
 ## Installation
 
-### Homebrew
-
-This repo includes a formula at `Formula/osx.rb`.
-
-Quick install:
-
-```bash
-brew tap moulik-budhiraja/osx-query https://github.com/Moulik-Budhiraja/OSX-Query
-brew install --HEAD moulik-budhiraja/osx-query/osx
-```
-
-Install from a local checkout:
-
-```bash
-brew tap moulik-budhiraja/osx-query /absolute/path/to/OSXQuery
-brew install --HEAD moulik-budhiraja/osx-query/osx
-```
-
-Note: because there are currently no git tags, the formula is head-only and tracks `main`.
-
-### Signed Release Archives
-
-For tagged releases, the repo can also produce signed macOS archives for `arm64` and `x86_64`.
-
-Local release build:
-
-```bash
-make release-macos VERSION=v0.1.0
-```
-
-Local release build plus notarization:
-
-```bash
-APPLE_ID="your-apple-id@example.com" \
-APPLE_APP_SPECIFIC_PASSWORD="app-specific-password" \
-APPLE_TEAM_ID="TEAMID1234" \
-make release-macos-notarized VERSION=v0.1.0
-```
-
-See [docs/releasing.md](docs/releasing.md) for the full release setup, including GitHub Actions secrets.
-
-## npm Install
-
-After a release is published to npm, users can install the CLI with:
+Install the CLI globally with npm:
 
 ```bash
 npm i -g osx-query
 ```
 
-The npm package downloads the signed and notarized native binary for the current macOS architecture from GitHub Releases.
-
-## Acknowledgment
-
-OSXQuery builds on core architectural ideas established in Peter Steinberger's [AXorcist](https://github.com/steipete/AXorcist) library.
-
-## Build And Run
+Recommended: install the agent skill as well:
 
 ```bash
-# Build
-swift build
-
-# Show help
-swift run osx --help
-
-# Query example
-swift run osx query --app focused "AXWindow AXButton" --limit 20
+npx skills add Moulik-Budhiraja/OSX-Query
 ```
 
-## Accessibility Permissions
-
-Without Accessibility permission, queries/interactions may fail or return no useful data.
-
-The library includes helpers (`AXPermissionHelpers`) to:
-
-- check current permission (`hasAccessibilityPermissions()`)
-- request prompt (`askForAccessibilityIfNeeded()` / `requestPermissions()`)
-- watch permission changes (`permissionChanges(...)`)
-
-## CLI Overview
-
-Primary commands:
-
-1. Query
+After install:
 
 ```bash
-osx query --app <target> "<query>" [options]
+osx --help
 ```
 
-2. Interactive
+## Usage
+
+Query the focused app for buttons:
 
 ```bash
-osx interactive <app> [options]
+osx query --app focused "AXWindow AXButton"
 ```
 
-3. Action
+Example output (truncated):
+
+```text
+stats app=focused selector="AXWindow AXButton" elapsed_ms=588.62 traversed=2470 matched=129 shown=10
+AXButton ref=04fa2fd1f name="Hide sidebar" desc="Hide sidebar"
+AXButton ref=86106af38 name="Button"
+AXButton ref=fa89acf01 name="axorcist"
+AXButton ref=f016e3f4c name="Open"
+...
+```
+
+Render the focused app's matches as a tree:
 
 ```bash
-osx action '<program>'
+osx query --app focused "AXWindow AXButton" --tree
 ```
 
-4. AX exposure
+Example output (truncated):
+
+```text
+stats app=focused selector="AXWindow AXButton" elapsed_ms=613.23 traversed=2597 matched=144 shown=50
+AXButton ref=02fbe8b7c name="ax-view-monitor" desc="ax-view-monitor"
+├── AXButton ref=de770416d name="Collapse folder" desc="Collapse folder"
+└●─ AXButton ref=b3ce745d9 name="Start new thread in ax-view-monitor" desc="Start new thread in ax-view-monitor"
+...
+```
+
+Query with a warm cache session so results include refs you can act on:
 
 ```bash
-osx enable-ax <bundle-id>
+osx query --app com.apple.Messages "AXButton" --cache-session
 ```
 
-### App Target Resolution
-
-`query --app` and `interactive <app>` accept:
-
-- bundle id (`com.apple.TextEdit`)
-- exact running app name (case-insensitive match)
-- PID
-- `focused` (frontmost app)
-
-### Option Reference (Public CLI)
-
-- `query --app <target> <query>`: run a selector query.
-- `interactive <app>`: open the full-screen TUI query workflow.
-- `action <program>`: execute an OXA action program against cached refs.
-- `--max-depth <n>`: maximum selector traversal depth. Default is unlimited.
-- `--limit <n>`: max rows to print. Default `50`; `0` means no cap.
-- `--show-path`: include generated path for each shown match.
-- `--show-name-source`: include computed name source (for example `AXTitle`).
-- `--no-color`: disable ANSI role/status colors.
-- `--cache-session`: query through cache daemon and refresh warm snapshot.
-- `--use-cached`: query through cache daemon using existing warm snapshot only.
-- `enable-ax <bundle-id>`: run AX exposure flow.
-- `--debug`, `--verbose`: enable normal/verbose diagnostic logging.
-- `-h`, `--help` or `help`: print CLI usage.
-
-For full CLI documentation, see [docs/cli.md](docs/cli.md).
-
-## Selector Syntax
-
-View the full syntax reference at [docs/selector-syntax.md](docs/selector-syntax.md).
-
-Quick examples:
+Click a result using the `ref=...` value returned by the cached query:
 
 ```bash
-# All buttons under any window
-osx query --app TextEdit "AXWindow AXButton"
-
-# Parent that has a direct child text field
-osx query --app TextEdit "AXGroup:has(> AXTextField)"
-
-# Disjunction
-osx query --app TextEdit "AXTextArea, AXTextField, AXComboBox"
+osx action 'send click to 28e6a93cf;'
 ```
 
-Selector mode output format:
+Send text as keystrokes to a cached result:
 
-- `stats ...` line (app, selector, elapsed, traversed, matched, shown)
-- result rows (`AXButton ...`)
-- optional `ref=...` tokens per row when refs are available (for OXA actions)
-- optional full path lines with `--show-path`
-- compact tree rendering with `--tree` to show matched nodes only
-- full inferred-ancestor tree rendering with `--tree-full`
-
-Use:
-
-- `--show-name-source` to include where computed name came from (for example `AXTitle`)
-- `--no-color` to disable ANSI output
-- `--tree` to render selector matches with compact matched-only branches (`└●─` marks collapsed unmatched intermediates)
-- `--tree-full` to render the full inferred ancestor chain
-
-## Library Usage (Swift)
-
-The query app integration (`~/dev/osxqueryapp`) uses:
-
-- `OXQParser` for syntax parsing
-- `OXQSelectorEngine` for selector evaluation
-- `OXQQueryMemoizationContext` for cached reads during evaluation
-
-Minimal parser example:
-
-```swift
-import OSXQuery
-
-let ast = try OXQParser().parse("AXGroup:has(> AXTextField) AXButton")
-print(ast.selectors.count)
+```bash
+osx action 'send text "hello world" as keys to 28e6a93cf;'
 ```
 
-Selector evaluation example:
+Open the interactive selector UI:
 
-```swift
-import OSXQuery
-
-@MainActor
-func runSelectorQuery() throws {
-    guard let root = Element.focusedApplication() else { return }
-
-    let children: (Element) -> [Element] = { element in
-        element.children(strict: false, includeApplicationExtras: element == root) ?? []
-    }
-    let role: (Element) -> String? = { element in
-        element.role()
-    }
-    let attributeValue: (Element, String) -> String? = { element, attributeName in
-        let canonical = PathUtils.attributeKeyMappings[attributeName.lowercased()] ?? attributeName
-
-        if canonical == AXAttributeNames.kAXRoleAttribute {
-            return element.role()
-        }
-        if let string: String = element.attribute(Attribute<String>(canonical)) {
-            return string
-        }
-        if let bool: Bool = element.attribute(Attribute<Bool>(canonical)) {
-            return bool ? "true" : "false"
-        }
-        if let number: NSNumber = element.attribute(Attribute<NSNumber>(canonical)) {
-            return number.stringValue
-        }
-        return nil
-    }
-
-    let selectorEngine = OXQSelectorEngine<Element>(
-        children: children,
-        role: role,
-        attributeValue: attributeValue)
-
-    let memoizationContext = OXQQueryMemoizationContext<Element>(
-        childrenProvider: children,
-        roleProvider: role,
-        attributeValueProvider: attributeValue)
-
-    let evaluation = try selectorEngine.findAllWithMetrics(
-        matching: "AXWindow AXButton[AXTitle*=\"Save\"]",
-        from: root,
-        maxDepth: 20,
-        memoizationContext: memoizationContext)
-
-    print("matched:", evaluation.matches.count)
-    print("traversed:", evaluation.traversedNodeCount)
-}
+```bash
+osx interactive com.apple.Messages
 ```
 
-The command-envelope API (`OSXQuery.shared.runCommand(...)`) remains available, but selector mode and the query app both use the selector engine path above.
+## Notes
+
+- macOS only
+- The app executing `osx` needs Accessibility permission to inspect and interact with apps
+- Some workflows may also require optional Screen Recording permission for the app executing `osx` to take screenshots
+- If queries return nothing useful, grant Accessibility access to the terminal app or host app running `osx`
+
+## Acknowledgments
+
+OSXQuery builds on foundations established in Peter Steinberger's [AXorcist](https://github.com/steipete/AXorcist).
