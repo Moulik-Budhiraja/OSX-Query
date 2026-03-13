@@ -10,6 +10,16 @@ description: Use OSXQuery when an agent must interact with desktop UIs, web apps
 Use OSXQuery as a computer-use tool when an agent must interact with desktop UIs, browser/web workflows, or UI-driven test flows used to validate other systems.
 When browser interaction is required, use the user's default browser unless the user explicitly asks for a specific browser.
 
+## Additional Guidance
+
+Keep supporting tool use to a minimum while working through an OSXQuery task.
+If the user asks you to investigate or operate a UI with OSXQuery, rely on this skill and the `osx` CLI as the primary workflow instead of mixing in other research or automation tools.
+Use other tools only when they provide brief supporting context that directly informs the next OSXQuery step.
+Do not substitute broader web research for UI inspection through OSXQuery.
+
+Do not use other UI automation methods alongside OSXQuery.
+Avoid AppleScript, browser automation frameworks, or similar tools that can interfere with the `osx` workflow and make results less reliable.
+
 ## Mandatory Pre-Read (Do Not Skip)
 
 Read both documents in full before executing any `osx` command:
