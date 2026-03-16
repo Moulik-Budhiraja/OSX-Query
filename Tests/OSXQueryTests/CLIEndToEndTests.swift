@@ -59,6 +59,45 @@ struct CLIEndToEndTests {
         #expect(result.errorOutput?.contains("Invalid selector query:") == true)
     }
 
+    @Test("Cached query can be reused for action reads", .tags(.safe))
+    func cachedQueryCanBeReusedForActionReads() throws {
+        let warmResult = try runOSXCommand(arguments: [
+            "query",
+            "--cache-session",
+            "--app", "focused",
+            "--max-depth", "1",
+            "--limit", "1",
+            "--no-color",
+            "AXApplication",
+        ])
+
+        #expect(warmResult.exitCode == 0)
+        let warmedOutput = try #require(warmResult.output)
+        let reference = try #require(Self.firstReference(in: warmedOutput))
+
+        let cachedResult = try runOSXCommand(arguments: [
+            "query",
+            "--use-cached",
+            "--app", "focused",
+            "--max-depth", "1",
+            "--limit", "1",
+            "--no-color",
+            "AXApplication",
+        ])
+
+        #expect(cachedResult.exitCode == 0)
+        #expect(cachedResult.output?.contains("ref=\(reference)") == true)
+
+        let actionResult = try runOSXCommand(arguments: [
+            "action",
+            "read AXRole from \(reference);",
+        ])
+
+        #expect(actionResult.exitCode == 0)
+        #expect(actionResult.output?.contains("ok [1] read AXRole from \(reference)") == true)
+        #expect(actionResult.output?.contains("value [1] AXApplication") == true)
+    }
+
     @Test("Interactive mode requires an app argument", .tags(.safe))
     func interactiveRequiresApp() throws {
         let result = try runOSXCommand(arguments: ["interactive"])
@@ -150,5 +189,21 @@ struct CLIEndToEndTests {
         #expect(enableAXHelp.exitCode == 0)
         #expect(enableAXHelp.output?.contains("osx enable-ax") == true)
         #expect(enableAXHelp.output?.contains("osx enable-ax <bundle-id> [options]") == true)
+    }
+
+    private static func firstReference(in output: String) -> String? {
+        let pattern = #"ref=([0-9a-f]{9})"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+
+        let range = NSRange(output.startIndex..<output.endIndex, in: output)
+        guard let match = regex.firstMatch(in: output, range: range),
+              let matchRange = Range(match.range(at: 1), in: output)
+        else {
+            return nil
+        }
+
+        return String(output[matchRange])
     }
 }
