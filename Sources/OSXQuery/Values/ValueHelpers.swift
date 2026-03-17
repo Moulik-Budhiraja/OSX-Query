@@ -48,6 +48,35 @@ public func axValue<T>(
     return castValueToType(value, expectedType: T.self, attr: attr)
 }
 
+private func castValueToType<T>(_ value: Any, expectedType: T.Type, attr: String) -> T? {
+    if expectedType == String.self {
+        if let string = value as? String {
+            return string as? T
+        }
+        if let attributedString = value as? NSAttributedString {
+            return attributedString.string as? T
+        }
+    }
+
+    if let typedValue = value as? T {
+        return typedValue
+    }
+
+    if expectedType == Int.self, let number = value as? NSNumber {
+        return number.intValue as? T
+    }
+    if expectedType == Double.self, let number = value as? NSNumber {
+        return number.doubleValue as? T
+    }
+    if expectedType == Bool.self, let number = value as? NSNumber {
+        return number.boolValue as? T
+    }
+
+    axWarningLog(
+        "Failed to cast attribute '\(attr)' value of type \(type(of: value)) to \(expectedType)")
+    return nil
+}
+
 // MARK: - AXValueType String Helper
 
 public func stringFromAXValueType(_ type: AXValueType) -> String {

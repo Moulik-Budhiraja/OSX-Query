@@ -137,7 +137,7 @@ struct CLIEndToEndTests {
 
         #expect(result.exitCode != 0)
         #expect(result.output?.isEmpty ?? true)
-        #expect(result.errorOutput?.contains("No cached query snapshot available.") == true)
+        #expect(result.errorOutput?.contains("Unknown element reference 'deadbeef0'. Re-run query to refresh refs.") == true)
     }
 
     @Test("Enable AX requires a bundle identifier", .tags(.safe))
